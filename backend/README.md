@@ -67,3 +67,18 @@ curl -X POST http://localhost:5000/api/ask \
 ```
 
 The response includes an English answer, the safe operation used when one was detected, and the computed result.
+
+## Automated Tests
+
+Install dev-only test dependencies and run pytest:
+
+```powershell
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+The test suite in `backend/tests/test_api.py` creates temporary CSV/XLSX files
+in memory, uploads them through the Flask API, and verifies preview, summary,
+ask, safety, and dataset-isolation behavior. It does not depend on existing
+files in `backend/uploads` and does not require a real OpenAI API key.

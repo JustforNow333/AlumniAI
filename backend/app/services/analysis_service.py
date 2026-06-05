@@ -208,6 +208,15 @@ def run_safe_analysis_intent(df, question):
     mentioned_columns = _mentioned_columns(question, df.columns)
 
     try:
+        if _asks_for_unsafe_mutation(question_lower):
+            return (
+                {"type": "analysis_error"},
+                {"error": "Only read-only analysis is supported. The dataset was not modified."},
+            )
+
+        if _asks_for_dataframe_summary(question_lower):
+            return {"type": "summarize_dataframe"}, summarize_dataframe(df)
+
         if any(word in question_lower for word in ["missing", "null", "blank"]):
             return {"type": "summarize_dataframe"}, summarize_dataframe(df)
 
@@ -227,6 +236,13 @@ def run_safe_analysis_intent(df, question):
                 df, column
             )
 
+        single_column_summary = _detect_single_column_summary(df, question_lower, mentioned_columns)
+        if single_column_summary:
+            return (
+                {"type": "summarize_column", "column": single_column_summary},
+                summarize_column(df, single_column_summary),
+            )
+
         aggregate_intent = _detect_grouped_aggregate(df, question, mentioned_columns)
         if aggregate_intent:
             group_col, value_col, aggregation = aggregate_intent
@@ -243,15 +259,15 @@ def run_safe_analysis_intent(df, question):
 
         sort_intent = _detect_top_rows(df, question_lower, mentioned_columns)
         if sort_intent:
-            sort_col, ascending = sort_intent
+            sort_col, ascending, limit = sort_intent
             return (
                 {
                     "type": "top_rows",
                     "sort_col": sort_col,
-                    "limit": 10,
+                    "limit": limit,
                     "ascending": ascending,
                 },
-                top_rows(df, sort_col, limit=10, ascending=ascending),
+                top_rows(df, sort_col, limit=limit, ascending=ascending),
             )
     except AnalysisError as exc:
         return {"type": "analysis_error"}, {"error": str(exc)}
@@ -285,7 +301,7 @@ def _numeric_summary(df):
 
 
 def _categorical_summary(df):
-    categorical_columns = df.select_dtypes(include=["object", "category", "bool"]).columns
+    categorical_columns = df.select_dtypes(include=["object", "str", "category", "bool"]).columns
     summary = {}
 
     for column in categorical_columns:
@@ -366,11 +382,61 @@ def _asks_for_correlation(question_lower):
     )
 
 
+def _asks_for_unsafe_mutation(question_lower):
+    return any(
+        phrase in question_lower
+        for phrase in [
+            "delete all rows",
+            "delete rows",
+            "drop the table",
+            "drop table",
+            "remove all rows",
+            "truncate",
+            "wipe",
+        ]
+    )
+
+
+def _asks_for_dataframe_summary(question_lower):
+    return any(
+        phrase in question_lower
+        for phrase in [
+            "summarize this dataset",
+            "summarise this dataset",
+            "summarize the dataset",
+            "summarise the dataset",
+            "dataset summary",
+            "describe this dataset",
+            "describe the dataset",
+        ]
+    )
+
+
 def _asks_for_column_summary(question_lower):
     return any(
         phrase in question_lower
         for phrase in ["summarize column", "summary of column", "describe column"]
     )
+
+
+def _detect_single_column_summary(df, question_lower, mentioned_columns):
+    if not mentioned_columns:
+        return None
+
+    if " by " in f" {question_lower} ":
+        return None
+
+    asks_for_metric = any(
+        word in question_lower
+        for word in ["average", "mean", "avg", "total", "sum", "minimum", "maximum", "min", "max"]
+    )
+    if not asks_for_metric:
+        return None
+
+    numeric_mentions = [
+        column for column in mentioned_columns if pd.api.types.is_numeric_dtype(df[column])
+    ]
+    return numeric_mentions[0] if numeric_mentions else None
 
 
 def _detect_grouped_aggregate(df, question, mentioned_columns):
@@ -429,12 +495,11 @@ def _detect_top_rows(df, question_lower, mentioned_columns):
     if not mentioned_columns:
         return None
 
-    wants_top_rows = any(
-        phrase in question_lower
-        for phrase in ["top rows by", "top records by", "top 10 by", "highest", "largest"]
+    wants_top_rows = bool(
+        re.search(r"\b(top|highest|largest|biggest)\b", question_lower)
     )
     wants_lowest_rows = any(
-        phrase in question_lower for phrase in ["lowest", "smallest", "bottom rows by"]
+        phrase in question_lower for phrase in ["lowest", "smallest", "bottom"]
     )
 
     if not wants_top_rows and not wants_lowest_rows:
@@ -444,7 +509,19 @@ def _detect_top_rows(df, question_lower, mentioned_columns):
         column for column in mentioned_columns if pd.api.types.is_numeric_dtype(df[column])
     ]
     sort_col = numeric_mentions[0] if numeric_mentions else mentioned_columns[0]
-    return sort_col, bool(wants_lowest_rows)
+    limit = _extract_limit(question_lower, default=10)
+    return sort_col, bool(wants_lowest_rows), limit
+
+
+def _extract_limit(question_lower, default=10):
+    match = re.search(r"\b(?:top|bottom|first|last|show me the top)\s+(\d{1,3})\b", question_lower)
+    if not match:
+        match = re.search(r"\b(\d{1,3})\s+rows?\b", question_lower)
+
+    if not match:
+        return default
+
+    return _clamp_limit(match.group(1))
 
 
 def _column_after_keyword(question, keyword, columns):

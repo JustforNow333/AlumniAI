@@ -4,3 +4,7 @@ pandas
 openpyxl
 python-dotenv
 openai
+
+pytest
+pytest-mock
+coverage

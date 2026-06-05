@@ -40,6 +40,15 @@ Completed increments:
    - When no key is configured, `/api/ask` still returns safe analysis results with a concise deterministic fallback answer.
    - If OpenAI is configured but the API call fails, the backend still returns the computed safe operation/result and includes the failure in the answer text.
 
+7. Automated backend tests
+   - Added pytest suite in `backend/tests/test_api.py`.
+   - Tests create temporary CSV/XLSX uploads in memory and do not depend on files in `backend/uploads`.
+   - Tests disable OpenAI by setting the AI client to `None`, so no real API key or internet access is required.
+   - Coverage includes health, upload validation, preview, summary, ask validation, summary/missing/group-by/average/top/correlation intents, unsupported prompts, dangerous read-only prompts, dataset isolation, spaced column names, and a 1,000-row XLSX smoke test.
+   - Pytest dependencies live in `backend/requirements.txt`.
+   - Run from the project root with `pip install -r backend/requirements.txt && pytest`.
+   - Added root `pytest.ini` so pytest discovers `backend/tests` and imports `backend/app` as top-level `app`.
+
 Important files:
 
 - `backend/run.py`
@@ -52,6 +61,9 @@ Important files:
 - `backend/app/services/ai_service.py`
 - `backend/app/utils/file_utils.py`
 - `backend/README.md`
+- `backend/requirements.txt`
+- `backend/tests/test_api.py`
+- `pytest.ini`
 - `frontend/index.html`
 - `frontend/app.jsx`
 - `frontend/api.jsx`

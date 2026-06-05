@@ -29,6 +29,8 @@ def is_empty_upload(uploaded_file):
 
 
 def save_uploaded_file(uploaded_file, upload_folder):
+    Path(upload_folder).mkdir(parents=True, exist_ok=True)
+
     original_name = secure_filename(uploaded_file.filename)
     extension = Path(original_name).suffix.lower()
     stem = Path(original_name).stem or "upload"

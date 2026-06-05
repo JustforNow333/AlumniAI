@@ -41,3 +41,13 @@ pip install -r requirements.txt
 ```
 
 `OPENAI_API_KEY` in `backend/.env` is optional. Without it, the app still runs safe built-in analysis operations and returns deterministic fallback answers.
+
+## Backend Tests
+
+```powershell
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests create temporary CSV/XLSX uploads and do not require a real OpenAI API key.
