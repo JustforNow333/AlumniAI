@@ -2,7 +2,8 @@ from flask import Blueprint, jsonify, request
 
 from app.services.analysis_service import run_safe_analysis_intent
 from app.services.ai_service import build_ai_context, generate_answer
-from app.services.spreadsheet_service import get_dataset, to_json_safe
+from app.services.dataset_store import DatasetStoreError, load_dataset_dataframe
+from app.services.spreadsheet_service import to_json_safe
 
 
 chat_bp = Blueprint("chat", __name__, url_prefix="/api")
@@ -23,11 +24,11 @@ def ask_dataset():
     if not question or not str(question).strip():
         return jsonify({"error": "question is required."}), 400
 
-    dataset = get_dataset(dataset_id)
-    if dataset is None:
-        return jsonify({"error": "Dataset not found."}), 404
+    try:
+        df, _metadata = load_dataset_dataframe(dataset_id)
+    except DatasetStoreError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
 
-    df = dataset["dataframe"]
     context = build_ai_context(df)
     operation, result = run_safe_analysis_intent(df, str(question).strip())
     answer = generate_answer(str(question).strip(), context, operation=operation, result=result)

@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify
 
 from app.services.analysis_service import summarize_dataframe
-from app.services.spreadsheet_service import get_dataset, get_preview_payload
+from app.services.dataset_store import DatasetStoreError, load_dataset_dataframe
+from app.services.spreadsheet_service import get_preview_payload
 
 
 dataset_bp = Blueprint("datasets", __name__, url_prefix="/api/datasets")
@@ -9,17 +10,19 @@ dataset_bp = Blueprint("datasets", __name__, url_prefix="/api/datasets")
 
 @dataset_bp.get("/<dataset_id>/preview")
 def preview_dataset(dataset_id):
-    dataset = get_dataset(dataset_id)
-    if dataset is None:
-        return jsonify({"error": "Dataset not found."}), 404
+    try:
+        df, _metadata = load_dataset_dataframe(dataset_id)
+    except DatasetStoreError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
 
-    return jsonify(get_preview_payload(dataset["dataframe"]))
+    return jsonify(get_preview_payload(df))
 
 
 @dataset_bp.get("/<dataset_id>/summary")
 def summarize_dataset(dataset_id):
-    dataset = get_dataset(dataset_id)
-    if dataset is None:
-        return jsonify({"error": "Dataset not found."}), 404
+    try:
+        df, _metadata = load_dataset_dataframe(dataset_id)
+    except DatasetStoreError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
 
-    return jsonify(summarize_dataframe(dataset["dataframe"]))
+    return jsonify(summarize_dataframe(df))

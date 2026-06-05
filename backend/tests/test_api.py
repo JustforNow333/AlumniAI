@@ -1,10 +1,13 @@
+import json
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from app import create_app
 from app.services import ai_service
+from app.services.dataset_store import clear_dataset_cache, load_dataset_registry
 from app.services.spreadsheet_service import DATASETS
 
 
@@ -32,6 +35,8 @@ def app(tmp_path, monkeypatch):
     app.config.update(
         TESTING=True,
         UPLOAD_FOLDER=str(tmp_path / "uploads"),
+        DATA_FOLDER=str(tmp_path / "data"),
+        DATASET_REGISTRY_PATH=str(tmp_path / "data" / "datasets.json"),
     )
 
     yield app
@@ -116,6 +121,28 @@ def test_upload_valid_xlsx(client, sample_df):
     assert data["summary"]["column_names"] == list(sample_df.columns)
 
 
+def test_upload_creates_dataset_metadata(client, app, sample_df):
+    dataset_id, data = upload_dataframe(client, sample_df, "metadata.csv")
+    registry_path = Path(app.config["DATASET_REGISTRY_PATH"])
+
+    assert registry_path.exists()
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    assert dataset_id in registry
+
+    metadata = registry[dataset_id]
+    stored_path = Path(app.config["UPLOAD_FOLDER"]) / metadata["stored_filename"]
+
+    assert stored_path.exists()
+    assert data["metadata"]["dataset_id"] == dataset_id
+    assert metadata["original_filename"] == "metadata.csv"
+    assert metadata["stored_filename"].startswith(f"{dataset_id}_")
+    assert metadata["file_path"] == f"uploads/{metadata['stored_filename']}"
+    assert metadata["file_type"] == "csv"
+    assert metadata["row_count"] == len(sample_df)
+    assert metadata["column_count"] == len(sample_df.columns)
+    assert metadata["columns"] == list(sample_df.columns)
+
+
 def test_upload_missing_file(client):
     response = client.post("/api/upload", data={}, content_type="multipart/form-data")
 
@@ -162,6 +189,23 @@ def test_preview_uploaded_xlsx(client, sample_df):
     assert data["column_names"] == list(sample_df.columns)
     assert len(data["preview"]) == 10
     assert len(data["preview"]) < len(large_df)
+
+
+def test_dataset_survives_simulated_restart(client, app, sample_df):
+    dataset_id, _ = upload_dataframe(client, sample_df, "restart.xlsx")
+    clear_dataset_cache()
+
+    with app.app_context():
+        registry = load_dataset_registry()
+
+    assert dataset_id in registry
+
+    response = client.get(f"/api/datasets/{dataset_id}/preview")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["column_names"] == list(sample_df.columns)
+    assert len(data["preview"]) == len(sample_df)
 
 
 def test_preview_invalid_dataset_id(client):
@@ -353,6 +397,54 @@ def test_dataset_isolation(client):
     assert first_response["result"] == {"Beta": 20.0, "Alpha": 10.0}
     assert second_response["result"] == {"Beta": 2000.0, "Alpha": 1000.0}
     assert first_response["result"] != second_response["result"]
+
+
+def test_dataset_isolation_after_persistence(client):
+    first_df = pd.DataFrame(
+        {
+            "Customer": ["One", "Two"],
+            "Category": ["Alpha", "Beta"],
+            "Revenue": [10.0, 20.0],
+            "Orders": [1, 2],
+            "Date": pd.to_datetime(["2026-02-01", "2026-02-02"]),
+        }
+    )
+    second_df = pd.DataFrame(
+        {
+            "Customer": ["Three", "Four"],
+            "Category": ["Alpha", "Beta"],
+            "Revenue": [1000.0, 2000.0],
+            "Orders": [10, 20],
+            "Date": pd.to_datetime(["2026-03-01", "2026-03-02"]),
+        }
+    )
+    first_id, first_upload = upload_dataframe(client, first_df, "first-persisted.xlsx")
+    second_id, second_upload = upload_dataframe(client, second_df, "second-persisted.xlsx")
+    clear_dataset_cache()
+
+    assert first_id != second_id
+    assert first_upload["metadata"]["stored_filename"] != second_upload["metadata"]["stored_filename"]
+
+    first_response = ask(client, first_id, "What is total revenue by category?")
+    second_response = ask(client, second_id, "What is total revenue by category?")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.get_json()["result"] == {"Beta": 20.0, "Alpha": 10.0}
+    assert second_response.get_json()["result"] == {"Beta": 2000.0, "Alpha": 1000.0}
+
+
+def test_missing_uploaded_file_returns_clean_error(client, app, sample_df):
+    dataset_id, data = upload_dataframe(client, sample_df, "missing-file.xlsx")
+    stored_path = Path(app.config["UPLOAD_FOLDER"]) / data["metadata"]["stored_filename"]
+    stored_path.unlink()
+
+    response = client.get(f"/api/datasets/{dataset_id}/preview")
+
+    assert response.status_code == 404
+    response_data = response.get_json()
+    assert "error" in response_data
+    assert "missing" in response_data["error"].lower()
 
 
 def test_column_names_with_spaces(client):

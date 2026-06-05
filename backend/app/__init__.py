@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
@@ -15,12 +16,16 @@ def create_app():
     project_dir = os.path.abspath(os.path.join(backend_dir, ".."))
     frontend_dir = os.path.join(project_dir, "frontend")
     upload_folder = os.path.join(backend_dir, "uploads")
+    data_folder = os.path.join(backend_dir, "data")
 
     app.config["UPLOAD_FOLDER"] = upload_folder
+    app.config["DATA_FOLDER"] = data_folder
+    app.config["DATASET_REGISTRY_PATH"] = os.path.join(data_folder, "datasets.json")
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
     app.config["JSON_SORT_KEYS"] = False
 
     ensure_upload_folder(upload_folder)
+    Path(data_folder).mkdir(parents=True, exist_ok=True)
 
     CORS(
         app,

@@ -68,14 +68,20 @@ curl -X POST http://localhost:5000/api/ask \
 
 The response includes an English answer, the safe operation used when one was detected, and the computed result.
 
+## Dataset Persistence
+
+Uploaded CSV/XLSX files are stored locally in `backend/uploads/`. Dataset metadata is stored in `backend/data/datasets.json`.
+
+These files are local development artifacts and are ignored by git. Existing `dataset_id`s survive backend restarts as long as the uploaded files and metadata JSON remain on disk.
+
 ## Automated Tests
 
-Install dev-only test dependencies and run pytest:
+Install dependencies and run pytest:
 
 ```powershell
 cd backend
-pip install -r requirements-dev.txt
-pytest
+pip install -r requirements.txt
+python -m pytest -v
 ```
 
 The test suite in `backend/tests/test_api.py` creates temporary CSV/XLSX files

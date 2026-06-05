@@ -17,7 +17,7 @@ Completed increments:
 
 3. Basic ask endpoint
    - Added `POST /api/ask`.
-   - Retrieves the in-memory DataFrame by `dataset_id`.
+   - Reloads the DataFrame by `dataset_id`.
    - Builds OpenAI context from dataset metadata, first 10 rows, and pandas summaries.
    - Uses the OpenAI Responses API when `OPENAI_API_KEY` is configured.
 
@@ -44,10 +44,19 @@ Completed increments:
    - Added pytest suite in `backend/tests/test_api.py`.
    - Tests create temporary CSV/XLSX uploads in memory and do not depend on files in `backend/uploads`.
    - Tests disable OpenAI by setting the AI client to `None`, so no real API key or internet access is required.
-   - Coverage includes health, upload validation, preview, summary, ask validation, summary/missing/group-by/average/top/correlation intents, unsupported prompts, dangerous read-only prompts, dataset isolation, spaced column names, and a 1,000-row XLSX smoke test.
+   - Coverage includes health, upload validation, preview, summary, ask validation, summary/missing/group-by/average/top/correlation intents, unsupported prompts, dangerous read-only prompts, dataset isolation, persistence/restart behavior, missing persisted files, spaced column names, and a 1,000-row XLSX smoke test.
    - Pytest dependencies live in `backend/requirements.txt`.
    - Run from the project root with `pip install -r backend/requirements.txt && pytest`.
    - Added root `pytest.ini` so pytest discovers `backend/tests` and imports `backend/app` as top-level `app`.
+
+8. Dataset persistence
+   - Added local MVP persistence with uploaded files in `backend/uploads/` and metadata in `backend/data/datasets.json`.
+   - Added `backend/app/services/dataset_store.py` for storage paths, registry load/save, upload registration, metadata lookup, dataframe reloads, missing-file errors, and optional cache clearing.
+   - `datasets.json` stores metadata only: dataset ID, original/stored filenames, relative file path, file type, upload timestamp, row/column counts, and columns.
+   - `POST /api/upload` writes the uploaded file and metadata, then returns the existing `dataset_id`, `filename`, and `summary` fields plus `metadata`.
+   - `POST /api/ask`, `GET /api/datasets/<dataset_id>/preview`, and `GET /api/datasets/<dataset_id>/summary` reload CSV/XLSX data from disk using the persisted registry.
+   - Flask config supports `UPLOAD_FOLDER`, `DATA_FOLDER`, and `DATASET_REGISTRY_PATH` so tests can use temporary isolated storage.
+   - `.gitignore` keeps `backend/uploads/.gitkeep` and `backend/data/.gitkeep` while ignoring uploaded files and generated registry metadata.
 
 Important files:
 
@@ -57,9 +66,11 @@ Important files:
 - `backend/app/routes/dataset_routes.py`
 - `backend/app/routes/chat_routes.py`
 - `backend/app/services/spreadsheet_service.py`
+- `backend/app/services/dataset_store.py`
 - `backend/app/services/analysis_service.py`
 - `backend/app/services/ai_service.py`
 - `backend/app/utils/file_utils.py`
+- `README.md`
 - `backend/README.md`
 - `backend/requirements.txt`
 - `backend/tests/test_api.py`

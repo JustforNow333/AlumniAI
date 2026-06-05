@@ -42,12 +42,18 @@ pip install -r requirements.txt
 
 `OPENAI_API_KEY` in `backend/.env` is optional. Without it, the app still runs safe built-in analysis operations and returns deterministic fallback answers.
 
+## Dataset Persistence
+
+Uploaded CSV/XLSX files are stored locally in `backend/uploads/`. Dataset metadata is stored in `backend/data/datasets.json`.
+
+These are local development artifacts and are ignored by git. `dataset_id`s survive backend restarts as long as the uploaded files and `datasets.json` remain on disk.
+
 ## Backend Tests
 
 ```powershell
 cd backend
-pip install -r requirements-dev.txt
-pytest
+pip install -r requirements.txt
+python -m pytest -v
 ```
 
 Tests create temporary CSV/XLSX uploads and do not require a real OpenAI API key.
