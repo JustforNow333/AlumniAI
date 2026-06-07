@@ -6,8 +6,9 @@
 <title>Alumni AI — Prototype</title>
 <link rel="stylesheet" href="theme.css" />
 <style>
-  html, body { margin: 0; height: 100%; background: #131022; }
-  #root { height: 100vh; width: 100vw; }
+  html, body { margin: 0; min-height: 100%; background: #131022; overflow-x: hidden; }
+  body { overflow-y: auto; }
+  #root { min-height: 100vh; width: 100vw; }
 </style>
 </head>
 <body>
@@ -21,12 +22,12 @@
      BACKEND CONFIG
        useApi:true  → POSTs to <apiBase>/api/upload and /api/ask
        useApi:false → runs fully in-browser with CSV demo mode only
-     The Flask backend runs on http://localhost:5000 by default.
+     Leave apiBase empty when Flask serves this frontend from the same origin.
      ============================================================ -->
 <script>
   window.ALUMNI_CONFIG = {
     useApi: true,
-    apiBase: "http://localhost:5000"
+    apiBase: ""
   };
 </script>
 

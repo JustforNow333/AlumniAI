@@ -115,10 +115,23 @@ def create_basic_summary(df, include_preview=True):
 
 
 def get_preview_payload(df, limit=10):
-    return {
-        "column_names": list(df.columns),
-        "preview": dataframe_preview(df, limit=limit),
+    missing_values = {
+        column: int(count) for column, count in df.isna().sum().to_dict().items()
     }
+    columns = list(df.columns)
+    rows = dataframe_preview(df, limit=limit)
+
+    return to_json_safe({
+        "row_count": int(df.shape[0]),
+        "column_count": int(df.shape[1]),
+        "missing_count": int(sum(missing_values.values())),
+        "columns": columns,
+        "data_types": {column: str(dtype) for column, dtype in df.dtypes.items()},
+        "missing_values": missing_values,
+        "rows": rows,
+        "column_names": list(df.columns),
+        "preview": rows,
+    })
 
 
 def dataframe_preview(df, limit=10):

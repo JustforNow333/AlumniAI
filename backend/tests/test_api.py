@@ -83,6 +83,32 @@ def ask(client, dataset_id, question):
     return client.post("/api/ask", json={"dataset_id": dataset_id, "question": question})
 
 
+def assert_structured_answer(data, expected_text=None):
+    answer = data["answer"]
+    assert isinstance(answer, dict)
+    assert isinstance(answer["summary"], str)
+    assert isinstance(answer["blocks"], list)
+    assert isinstance(answer["followups"], list)
+    assert data["answer_text"] == answer["summary"]
+    if expected_text:
+        assert expected_text in answer["summary"].lower()
+    for block in answer["blocks"]:
+        assert block["type"] in {"markdown", "table", "metrics", "ranked_list"}
+        assert "<script" not in json.dumps(block).lower()
+    return answer
+
+
+def result_rows_by_first_column(result):
+    return {row[0]: row[1] for row in result["rows"]}
+
+
+def result_row_map(result, first_column_value):
+    for row in result["rows"]:
+        if row and row[0] == first_column_value:
+            return dict(zip(result["columns"], row))
+    raise AssertionError(f"Missing result row for {first_column_value!r}")
+
+
 def test_flask_app_imports_correctly(app):
     assert app.testing is True
     assert app.test_client() is not None
@@ -186,6 +212,15 @@ def test_preview_uploaded_xlsx(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
+    assert data["dataset_id"] == dataset_id
+    assert data["filename"] == "large-preview.xlsx"
+    assert data["row_count"] == len(large_df)
+    assert data["column_count"] == len(sample_df.columns)
+    assert data["missing_count"] == 0
+    assert data["columns"] == list(sample_df.columns)
+    assert set(data["data_types"]) == set(sample_df.columns)
+    assert data["missing_values"] == {column: 0 for column in sample_df.columns}
+    assert len(data["rows"]) == 10
     assert data["column_names"] == list(sample_df.columns)
     assert len(data["preview"]) == 10
     assert len(data["preview"]) < len(large_df)
@@ -270,10 +305,12 @@ def test_ask_summary_question_on_xlsx(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "summarize_dataframe"
-    assert data["result"]["rows"] == len(sample_df)
-    assert data["result"]["columns"] == len(sample_df.columns)
-    assert "rows" in data["answer"].lower()
+    assert data["operation"]["type"] == "column_summary"
+    assert data["result"]["status"] == "ok"
+    assert data["result"]["metrics"]["total_rows"] == len(sample_df)
+    assert data["result"]["metrics"]["columns_analyzed"] == len(sample_df.columns)
+    answer = assert_structured_answer(data)
+    assert any(block["type"] == "metrics" for block in answer["blocks"])
 
 
 def test_ask_missing_values_question_on_xlsx(client, sample_df):
@@ -285,9 +322,10 @@ def test_ask_missing_values_question_on_xlsx(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "summarize_dataframe"
-    assert data["result"]["missing_values"]["Revenue"] == 1
-    assert "missing" in data["answer"].lower()
+    assert data["operation"]["type"] == "missing_values"
+    assert result_rows_by_first_column(data["result"])["Revenue"] == 1
+    answer = assert_structured_answer(data, "missing")
+    assert any(block["type"] == "table" for block in answer["blocks"])
 
 
 def test_ask_group_by_aggregate_question_on_xlsx(client, sample_df):
@@ -297,10 +335,12 @@ def test_ask_group_by_aggregate_question_on_xlsx(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "group_by_aggregate"
-    assert data["operation"]["group_col"] == "Category"
-    assert data["operation"]["value_col"] == "Revenue"
-    assert data["result"] == {"A": 450.0, "C": 500.0, "B": 400.0}
+    assert data["operation"]["type"] == "group_by_sum"
+    assert data["operation"]["params"]["group_by"] == "Category"
+    assert data["operation"]["params"]["value_column"] == "Revenue"
+    assert result_rows_by_first_column(data["result"]) == {"C": 500.0, "A": 450.0, "B": 400.0}
+    answer = assert_structured_answer(data)
+    assert any(block["type"] == "table" for block in answer["blocks"])
 
 
 def test_ask_average_question_on_xlsx(client, sample_df):
@@ -310,9 +350,11 @@ def test_ask_average_question_on_xlsx(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "summarize_column"
-    assert data["result"]["column"] == "Revenue"
-    assert data["result"]["mean"] == pytest.approx(sample_df["Revenue"].mean())
+    assert data["operation"]["type"] == "numeric_summary"
+    revenue = result_row_map(data["result"], "Revenue")
+    assert revenue["Mean"] == pytest.approx(sample_df["Revenue"].mean())
+    answer = assert_structured_answer(data)
+    assert any(block["type"] == "metrics" for block in answer["blocks"])
 
 
 def test_ask_top_rows_question_on_xlsx(client, sample_df):
@@ -322,11 +364,16 @@ def test_ask_top_rows_question_on_xlsx(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "top_rows"
-    assert data["operation"]["limit"] == 3
+    assert data["operation"]["type"] == "top_n"
+    assert data["operation"]["params"]["n"] == 3
     assert len(data["result"]["rows"]) == 3
-    assert data["result"]["rows"][0]["Revenue"] == 500.0
-    assert data["result"]["rows"][0]["Customer"] == "Echo"
+    top_row = dict(zip(data["result"]["columns"], data["result"]["rows"][0]))
+    assert top_row["Revenue"] == 500.0
+    assert top_row["Customer"] == "Echo"
+    answer = assert_structured_answer(data)
+    table_blocks = [block for block in answer["blocks"] if block["type"] == "table"]
+    assert table_blocks
+    assert "Revenue" in table_blocks[0]["columns"]
 
 
 def test_ask_correlation_question_on_xlsx(client, sample_df):
@@ -337,9 +384,34 @@ def test_ask_correlation_question_on_xlsx(client, sample_df):
     assert response.status_code == 200
     data = response.get_json()
     assert data["operation"]["type"] == "correlation"
-    assert data["result"]["col1"] == "Revenue"
-    assert data["result"]["col2"] == "Orders"
-    assert data["result"]["correlation"] == pytest.approx(sample_df["Revenue"].corr(sample_df["Orders"]))
+    correlation_row = next(
+        row for row in data["result"]["rows"] if set(row[:2]) == {"Revenue", "Orders"}
+    )
+    assert correlation_row[2] == pytest.approx(sample_df["Revenue"].corr(sample_df["Orders"]))
+    answer = assert_structured_answer(data)
+    assert any(block["type"] == "metrics" for block in answer["blocks"])
+
+
+def test_ask_invalid_model_json_falls_back_to_safe_structured_answer(client, sample_df, monkeypatch):
+    class FakeResponses:
+        def create(self, **kwargs):
+            assert "dataset_context" in kwargs["input"]
+            return type("FakeResponse", (), {"output_text": "<b>not json</b>"})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(ai_service, "client", FakeClient())
+    dataset_id, _ = upload_dataframe(client, sample_df, "invalid-model-json.xlsx")
+
+    response = ask(client, dataset_id, "Summarize this dataset.")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    answer = assert_structured_answer(data, "column")
+    assert data["operation"]["type"] == "column_summary"
+    assert data["operation_results"][0]["status"] == "ok"
+    assert "not json" not in json.dumps(answer).lower()
 
 
 def test_ask_unsupported_question(client, sample_df):
@@ -350,7 +422,8 @@ def test_ask_unsupported_question(client, sample_df):
     assert response.status_code == 200
     data = response.get_json()
     assert data["operation"] is None
-    assert "supported safe operation" in data["answer"].lower() or "data-related" in data["answer"].lower()
+    assert_structured_answer(data)
+    assert "approved analysis operations" in data["answer_text"].lower()
 
 
 def test_dangerous_prompt_is_read_only(client, sample_df):
@@ -361,8 +434,9 @@ def test_dangerous_prompt_is_read_only(client, sample_df):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "analysis_error"
-    assert "read-only" in data["answer"].lower() or "not modified" in data["answer"].lower()
+    assert data["operation"] is None
+    assert_structured_answer(data)
+    assert "read-only" in data["answer_text"].lower() or "not modified" in data["answer_text"].lower()
 
     after = client.get(f"/api/datasets/{dataset_id}/preview").get_json()
     assert after == before
@@ -394,9 +468,11 @@ def test_dataset_isolation(client):
     first_response = ask(client, first_id, "What is total revenue by category?").get_json()
     second_response = ask(client, second_id, "What is total revenue by category?").get_json()
 
-    assert first_response["result"] == {"Beta": 20.0, "Alpha": 10.0}
-    assert second_response["result"] == {"Beta": 2000.0, "Alpha": 1000.0}
-    assert first_response["result"] != second_response["result"]
+    first_result = result_rows_by_first_column(first_response["result"])
+    second_result = result_rows_by_first_column(second_response["result"])
+    assert first_result == {"Beta": 20.0, "Alpha": 10.0}
+    assert second_result == {"Beta": 2000.0, "Alpha": 1000.0}
+    assert first_result != second_result
 
 
 def test_dataset_isolation_after_persistence(client):
@@ -430,8 +506,8 @@ def test_dataset_isolation_after_persistence(client):
 
     assert first_response.status_code == 200
     assert second_response.status_code == 200
-    assert first_response.get_json()["result"] == {"Beta": 20.0, "Alpha": 10.0}
-    assert second_response.get_json()["result"] == {"Beta": 2000.0, "Alpha": 1000.0}
+    assert result_rows_by_first_column(first_response.get_json()["result"]) == {"Beta": 20.0, "Alpha": 10.0}
+    assert result_rows_by_first_column(second_response.get_json()["result"]) == {"Beta": 2000.0, "Alpha": 1000.0}
 
 
 def test_missing_uploaded_file_returns_clean_error(client, app, sample_df):
@@ -462,13 +538,10 @@ def test_column_names_with_spaces(client):
 
     assert response.status_code == 200
     data = response.get_json()
-    if data["operation"]["type"] == "analysis_error":
-        assert "error" in data["result"]
-    else:
-        assert data["operation"]["type"] == "group_by_aggregate"
-        assert data["operation"]["group_col"] == "Product Category"
-        assert data["operation"]["value_col"] == "Total Revenue"
-        assert data["result"] == {"Hardware": 400.0, "Software": 200.0}
+    assert data["operation"]["type"] == "group_by_sum"
+    assert data["operation"]["params"]["group_by"] == "Product Category"
+    assert data["operation"]["params"]["value_column"] == "Total Revenue"
+    assert result_rows_by_first_column(data["result"]) == {"Hardware": 400.0, "Software": 200.0}
 
 
 def test_large_xlsx_smoke(client):
@@ -488,6 +561,6 @@ def test_large_xlsx_smoke(client):
 
     assert response.status_code == 200
     data = response.get_json()
-    assert data["operation"]["type"] == "summarize_column"
-    assert data["result"]["column"] == "Revenue"
-    assert data["result"]["sum"] == pytest.approx(df["Revenue"].sum())
+    assert data["operation"]["type"] == "numeric_summary"
+    revenue = result_row_map(data["result"], "Revenue")
+    assert revenue["Sum"] == pytest.approx(df["Revenue"].sum())

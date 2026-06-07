@@ -16,6 +16,49 @@ function cellVal(ds, col, raw) {
   if (m.type === "num") return <span className="mono">{window.fmtNum(window.toNum(raw), m)}</span>;
   return raw;
 }
+function previewVal(raw) {
+  if (raw === "" || raw == null) return <span style={{ color: "var(--text-3)" }}>-</span>;
+  return String(raw);
+}
+function uiTypeFromDtype(dtype) {
+  const dt = String(dtype || "").toLowerCase();
+  if (/int|float|number|decimal|double/.test(dt)) return "num";
+  if (/date|time/.test(dt)) return "date";
+  return "text";
+}
+function sumMissing(missingValues = {}) {
+  return Object.values(missingValues).reduce((a, b) => a + (Number(b) || 0), 0);
+}
+function mergeDatasetPreview(ds, preview) {
+  if (!preview) return ds;
+  const columns = (preview.columns && preview.columns.length ? preview.columns : ds.columns) || [];
+  const rows = preview.rows || ds.rows || [];
+  const dataTypes = preview.data_types || {};
+  const missingValues = preview.missing_values || {};
+  const meta = { ...(ds.meta || {}) };
+
+  for (const c of columns) {
+    const current = meta[c] || {};
+    const type = dataTypes[c] ? uiTypeFromDtype(dataTypes[c]) : (current.type || "text");
+    meta[c] = {
+      ...current,
+      name: c,
+      type,
+      missing: missingValues[c] != null ? Number(missingValues[c]) || 0 : (current.missing || 0),
+    };
+  }
+
+  return {
+    ...ds,
+    name: preview.filename || ds.name,
+    columns,
+    meta,
+    rows,
+    rows_n: preview.row_count != null ? preview.row_count : ds.rows_n,
+    cols_n: preview.column_count != null ? preview.column_count : (columns.length || ds.cols_n),
+    totalMissing: preview.missing_count != null ? preview.missing_count : sumMissing(missingValues) || ds.totalMissing,
+  };
+}
 
 /* ---------- result renderers ---------- */
 function GroupResult({ ds, result }) {
@@ -145,15 +188,141 @@ function MissingResult({ result }) {
     </div>
   );
 }
-function ResultBlock({ ds, msg }) {
-  switch (msg.kind) {
-    case "group": return <GroupResult ds={ds} result={msg.result} />;
-    case "top": return <TopResult ds={ds} result={msg.result} />;
-    case "correlation": return <CorrResult result={msg.result} />;
-    case "colsummary": return <ColResult ds={ds} result={msg.result} />;
-    case "missing": return <MissingResult result={msg.result} />;
-    default: return null;
+function answerText(value) {
+  if (value === "" || value == null) return <span style={{ color: "var(--text-3)" }}>-</span>;
+  return String(value);
+}
+function normalizeAnswerForRender(answer, fallbackText = "") {
+  if (answer && answer.answer && typeof answer.answer === "object") answer = answer.answer;
+  if (!answer || typeof answer !== "object") {
+    const summary = String(fallbackText || answer || "");
+    return { title: "", summary, blocks: summary ? [{ type: "markdown", content: summary }] : [], followups: [] };
   }
+  return {
+    title: String(answer.title || ""),
+    summary: String(answer.summary || fallbackText || ""),
+    blocks: Array.isArray(answer.blocks) ? answer.blocks : [],
+    followups: Array.isArray(answer.followups) ? answer.followups.filter(Boolean).slice(0, 4) : [],
+  };
+}
+function MarkdownBlock({ content }) {
+  const chunks = String(content || "").split(/\n{2,}/).filter(Boolean);
+  return (
+    <div className="prose" style={{ margin: 0 }}>
+      {chunks.map((chunk, i) => {
+        const lines = chunk.split(/\n/).filter(Boolean);
+        const isList = lines.every(line => /^\s*[-*]\s+/.test(line));
+        if (isList) {
+          return (
+            <ul key={i} style={{ margin: i ? "8px 0 0" : 0, paddingLeft: 18 }}>
+              {lines.map((line, j) => <li key={j}>{boldify(line.replace(/^\s*[-*]\s+/, ""))}</li>)}
+            </ul>
+          );
+        }
+        return <p key={i} style={{ margin: i ? "8px 0 0" : 0 }}>{boldify(chunk)}</p>;
+      })}
+    </div>
+  );
+}
+function TableBlock({ block }) {
+  const columns = Array.isArray(block.columns) ? block.columns : [];
+  const rows = Array.isArray(block.rows) ? block.rows : [];
+  if (!columns.length) return null;
+  return (
+    <div className="panel" style={{ overflow: "hidden" }}>
+      {(block.title || block.caption) && (
+        <div className="col" style={{ padding: "12px 14px 8px", gap: 3 }}>
+          {block.title && <span style={{ fontSize: 12.5, fontWeight: 700 }}>{block.title}</span>}
+          {block.caption && <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>{block.caption}</span>}
+        </div>
+      )}
+      <div style={{ overflowX: "auto" }}>
+        <table className="dtable">
+          <thead><tr>{columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {columns.map((c, j) => {
+                  const value = Array.isArray(row) ? row[j] : row && row[c];
+                  const numeric = typeof value === "number" || /^-?\$?[\d,]+(\.\d+)?%?$/.test(String(value || "").trim());
+                  return <td key={c} className={numeric ? "num" : ""}>{answerText(value)}</td>;
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function MetricsBlock({ block }) {
+  const items = Array.isArray(block.items) ? block.items : [];
+  if (!items.length) return null;
+  return (
+    <div className="panel" style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 14 }}>
+      {items.map((item, i) => (
+        <div className="col" key={i} style={{ gap: 2, minWidth: 0 }}>
+          <span className="stat-num" style={{ fontSize: 18, overflowWrap: "anywhere" }}>{answerText(item.value)}</span>
+          <span className="kicker">{answerText(item.label)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function RankedListBlock({ block }) {
+  const items = Array.isArray(block.items) ? block.items : [];
+  if (!items.length) return null;
+  return (
+    <div className="panel" style={{ overflow: "hidden" }}>
+      {block.title && <div className="kicker" style={{ padding: "12px 14px 6px" }}>{block.title}</div>}
+      <div className="col" style={{ gap: 0 }}>
+        {items.map((item, i) => (
+          <div className="row" key={i} style={{ padding: "10px 14px", gap: 12, borderTop: i ? "1px solid var(--border)" : "none", alignItems: "flex-start" }}>
+            <span className="mono" style={{ color: "var(--text-3)", width: 22, flex: "none", fontSize: 11 }}>{String(i + 1).padStart(2, "0")}</span>
+            <div className="col" style={{ gap: 3, minWidth: 0, flex: 1 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, overflowWrap: "anywhere" }}>{answerText(item.label)}</span>
+              {item.description && <span style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.35 }}>{answerText(item.description)}</span>}
+            </div>
+            {item.value && <span className="mono" style={{ color: "var(--primary)", fontSize: 12, fontWeight: 700, textAlign: "right" }}>{answerText(item.value)}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function AnswerBlock({ block }) {
+  if (!block || typeof block !== "object") return null;
+  if (block.type === "markdown") return <MarkdownBlock content={block.content} />;
+  if (block.type === "table") return <TableBlock block={block} />;
+  if (block.type === "metrics") return <MetricsBlock block={block} />;
+  if (block.type === "ranked_list") return <RankedListBlock block={block} />;
+  return null;
+}
+function FollowupChips({ followups, onFollowup }) {
+  if (!followups || !followups.length) return null;
+  return (
+    <div className="row gap8" style={{ flexWrap: "wrap", paddingTop: 2 }}>
+      {followups.map(text => (
+        <span key={text} className="sugg" onClick={() => onFollowup && onFollowup(text)}>{text}</span>
+      ))}
+    </div>
+  );
+}
+function AnswerCard({ answer, onFollowup }) {
+  const blocks = (answer.blocks || []).filter((block, i) => {
+    return !(i === 0 && block.type === "markdown" && String(block.content || "").trim() === String(answer.summary || "").trim());
+  });
+  return (
+    <div className="col" style={{ gap: 13 }}>
+      {answer.title && <div style={{ fontSize: 14, fontWeight: 800 }}>{answer.title}</div>}
+      {answer.summary && <p className="prose" style={{ margin: 0 }}>{boldify(answer.summary)}</p>}
+      {blocks.map((block, i) => <AnswerBlock key={i} block={block} />)}
+      <FollowupChips followups={answer.followups} onFollowup={onFollowup} />
+    </div>
+  );
+}
+function AnswerRenderer({ answer, fallbackText, onFollowup }) {
+  return <AnswerCard answer={normalizeAnswerForRender(answer, fallbackText)} onFollowup={onFollowup} />;
 }
 
 /* ---------- chat pieces ---------- */
@@ -167,14 +336,13 @@ function UserMsg({ text }) {
     </div>
   );
 }
-function AiMsg({ ds, msg }) {
+function AiMsg({ ds, msg, onFollowup }) {
   return (
     <div className="msg">
       <div className="msg-av ai"><Icon name="sparkle" size={15} /></div>
       <div className="msg-body col" style={{ gap: 13 }}>
         <div className="msg-name">Alumni AI</div>
-        <p className="prose" style={{ margin: 0 }}>{boldify(msg.text)}</p>
-        <ResultBlock ds={ds} msg={msg} />
+        <AnswerRenderer answer={msg.answer} fallbackText={msg.text} onFollowup={onFollowup} />
         {msg.op && (
           <div className="row gap8" style={{ color: "var(--text-3)", fontSize: 11.5, alignItems: "center" }}>
             <span>Safe operation</span><span>·</span>
@@ -199,7 +367,44 @@ function Thinking() {
 }
 
 /* ---------- data panel + rail ---------- */
-function DataPanel({ ds }) {
+function DatasetPreview({ preview = { columns: [], rows: [], loading: false, error: "" } }) {
+  const previewColumns = preview.columns || [];
+  const previewRows = preview.rows || [];
+  const columns = previewColumns.length
+    ? previewColumns
+    : (previewRows[0] ? Object.keys(previewRows[0]) : []);
+  const rows = previewRows.slice(0, 10);
+
+  if (preview.loading) {
+    return <div style={{ padding: "10px 0 4px", color: "var(--text-3)", fontSize: 12.5 }}>Loading preview...</div>;
+  }
+  if (preview.error) {
+    return <div style={{ padding: "10px 0 4px", color: "var(--warn)", fontSize: 12.5 }}>{preview.error}</div>;
+  }
+  if (!rows.length) {
+    return <div style={{ padding: "10px 0 4px", color: "var(--text-3)", fontSize: 12.5 }}>No preview rows available.</div>;
+  }
+
+  return (
+    <div className="panel" style={{ overflow: "auto", maxHeight: 220 }}>
+      <table className="dtable">
+        <thead>
+          <tr>{columns.map(c => <th key={c}>{c}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {columns.map(c => (
+                <td key={c} className={typeof r[c] === "number" ? "num" : ""}>{previewVal(r[c])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+function DataPanel({ ds, preview = { columns: [], rows: [], loading: false, error: "" } }) {
   return (
     <div className="col" style={{ width: 360, flex: "none", borderLeft: "1px solid var(--border)", background: "var(--surface)" }}>
       <div className="row" style={{ padding: "15px 18px", gap: 10, borderBottom: "1px solid var(--border)" }}>
@@ -207,26 +412,35 @@ function DataPanel({ ds }) {
         <span className="mono" style={{ fontSize: 12.5, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ds.name}</span>
         <button className="btn-icon" style={{ width: 28, height: 28 }}><Icon name="download" size={14} /></button>
       </div>
-      <div className="row" style={{ padding: "14px 18px", gap: 18 }}>
-        {[["Rows", ds.rows_n.toLocaleString()], ["Columns", ds.cols_n], ["Missing", ds.totalMissing]].map(([k, v]) => (
-          <div className="col" key={k} style={{ gap: 2 }}>
-            <span className="stat-num" style={{ fontSize: 18 }}>{v}</span>
-            <span className="kicker">{k}</span>
-          </div>
-        ))}
-      </div>
-      <div className="divider" style={{ margin: "0 18px" }} />
-      <div className="row" style={{ padding: "14px 18px 8px", justifyContent: "space-between" }}>
-        <span className="kicker">Columns</span><span className="kicker">{ds.cols_n}</span>
-      </div>
-      <div className="col" style={{ padding: "0 12px 12px", gap: 1, overflowY: "auto" }}>
-        {ds.columns.map(c => (
-          <div className="row" key={c} style={{ padding: "7px 8px", gap: 8, borderRadius: 8 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c}</span>
-            {ds.meta[c].missing > 0 && <span title={ds.meta[c].missing + " missing"} style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600 }}>{ds.meta[c].missing}⚠</span>}
-            <TypePill t={ds.meta[c].type} />
-          </div>
-        ))}
+      <div className="col" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div className="row" style={{ padding: "14px 18px", gap: 18 }}>
+          {[["Rows", ds.rows_n.toLocaleString()], ["Columns", ds.cols_n], ["Missing", ds.totalMissing]].map(([k, v]) => (
+            <div className="col" key={k} style={{ gap: 2 }}>
+              <span className="stat-num" style={{ fontSize: 18 }}>{v}</span>
+              <span className="kicker">{k}</span>
+            </div>
+          ))}
+        </div>
+        <div className="divider" style={{ margin: "0 18px" }} />
+        <div className="row" style={{ padding: "14px 18px 8px", justifyContent: "space-between" }}>
+          <span className="kicker">Columns</span><span className="kicker">{ds.cols_n}</span>
+        </div>
+        <div className="col" style={{ padding: "0 12px 12px", gap: 1 }}>
+          {ds.columns.map(c => (
+            <div className="row" key={c} style={{ padding: "7px 8px", gap: 8, borderRadius: 8 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c}</span>
+              {ds.meta[c].missing > 0 && <span title={ds.meta[c].missing + " missing"} style={{ fontSize: 10, color: "var(--warn)", fontWeight: 600 }}>{ds.meta[c].missing}⚠</span>}
+              <TypePill t={ds.meta[c].type} />
+            </div>
+          ))}
+        </div>
+        <div className="divider" style={{ margin: "0 18px" }} />
+        <div className="row" style={{ padding: "14px 18px 8px", justifyContent: "space-between" }}>
+          <span className="kicker">Preview</span><span className="kicker">{preview.loading ? "loading" : `${Math.min(preview.rows.length, 10)} rows`}</span>
+        </div>
+        <div style={{ padding: "0 12px 16px" }}>
+          <DatasetPreview preview={preview} />
+        </div>
       </div>
     </div>
   );
@@ -296,9 +510,10 @@ function UploadView({ onLoad, loadError, theme, onToggle }) {
     setErr("");
     onLoad(file);
   };
-  const loadSample = () => handleFile(new File([window.SAMPLE_CSV], window.SAMPLE_NAME, { type: "text/csv" }));
+  const canLoadSample = !apiMode && window.SAMPLE_CSV && window.SAMPLE_NAME;
+  const loadSample = () => canLoadSample && handleFile(new File([window.SAMPLE_CSV], window.SAMPLE_NAME, { type: "text/csv" }));
   return (
-    <div className="screen col" data-theme={theme} style={{ width: "100%", height: "100%" }}>
+    <div className="screen col" data-theme={theme} style={{ width: "100%", minHeight: "100vh" }}>
       <div className="row" style={{ height: 56, padding: "0 22px", flex: "none", gap: 14 }}>
         <Brand />
         <div style={{ flex: 1 }} />
@@ -322,8 +537,9 @@ function UploadView({ onLoad, loadError, theme, onToggle }) {
             <button className="btn btn-primary" onClick={e => { e.stopPropagation(); inputRef.current.click(); }}><Icon name="file" size={15} /> Choose file</button>
             <input ref={inputRef} type="file" accept={acceptedTypes} style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
             <div className="row gap8" style={{ marginTop: 18, color: "var(--text-3)", fontSize: 11.5 }}>
-              <span className="mono">{supportedLabel}</span><span>·</span>
-              <span style={{ color: "var(--primary)", fontWeight: 600 }} onClick={e => { e.stopPropagation(); loadSample(); }}>try the sample dataset</span>
+              <span className="mono">{supportedLabel}</span>
+              {canLoadSample && <React.Fragment><span>·</span>
+                <span style={{ color: "var(--primary)", fontWeight: 600 }} onClick={e => { e.stopPropagation(); loadSample(); }}>try the sample dataset</span></React.Fragment>}
             </div>
           </div>
           {(err || loadError) && <div className="row gap8" style={{ color: "var(--warn)", fontSize: 12.5, fontWeight: 500, textAlign: "center" }}><Icon name="bolt" size={14} />{err || loadError}</div>}
@@ -334,7 +550,7 @@ function UploadView({ onLoad, loadError, theme, onToggle }) {
 }
 
 /* ---------- workspace view ---------- */
-function Workspace({ ds, theme, onToggle, onReset }) {
+function Workspace({ ds, preview, theme, onToggle, onReset }) {
   const [messages, setMessages] = useState(() => [{ role: "ai", kind: "help", op: null,
     text: `Loaded **${ds.name}** — ${ds.rows_n.toLocaleString()} rows across ${ds.cols_n} columns. Ask me anything, or try one of the suggestions below.` }]);
   const [busy, setBusy] = useState(false);
@@ -342,25 +558,29 @@ function Workspace({ ds, theme, onToggle, onReset }) {
   const sugg = window.suggestedQuestions(ds);
 
   useEffect(() => {
-    const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    try { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); } catch (e) {}
   }, [messages, busy]);
 
   const send = useCallback((q) => {
-    setMessages(m => [...m, { role: "user", text: q }]);
+    const text = String(q || "").trim();
+    if (!text || busy) return;
+    setMessages(m => [...m, { role: "user", text }]);
     setBusy(true);
     Promise.all([
-      window.Alumni.ask(ds, q).catch(e => ({ op: null, kind: "help", text: "Something went wrong: " + (e.message || e) })),
+      window.Alumni.ask(ds, text).catch(e => ({ op: null, kind: "structured", text: "Something went wrong: " + (e.message || e) })),
       new Promise(r => setTimeout(r, 420)),
     ]).then(([ans]) => {
       setMessages(m => [...m, { role: "ai", ...ans }]);
       setBusy(false);
     });
-  }, [ds]);
+  }, [ds, busy]);
 
   const onlyGreeting = messages.length === 1;
 
   return (
-    <div className="screen col" data-theme={theme} data-screen-label="Workspace" style={{ width: "100%", height: "100%" }}>
+    <div className="screen col" data-theme={theme} data-screen-label="Workspace" style={{ width: "100%", minHeight: "100vh" }}>
       <div className="row" style={{ height: 56, padding: "0 18px", borderBottom: "1px solid var(--border)", background: "var(--surface)", flex: "none", gap: 14 }}>
         <Brand />
         <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
@@ -373,18 +593,18 @@ function Workspace({ ds, theme, onToggle, onReset }) {
         <button className="btn-icon" onClick={onToggle} title="Toggle theme"><Icon name={theme === "light" ? "moon" : "sun"} size={16} /></button>
         <button className="btn btn-ghost"><Icon name="download" size={15} /> Export</button>
       </div>
-      <div className="row" style={{ flex: 1, minHeight: 0 }}>
+      <div className="row" style={{ flex: "1 0 auto", alignItems: "stretch" }}>
         <Rail ds={ds} onReset={onReset} />
-        <div className="col" style={{ flex: 1, minWidth: 0 }}>
-          <div ref={scrollRef} className="col" style={{ flex: 1, padding: "26px 34px", gap: 28, overflowY: "auto", minHeight: 0 }}>
-            {messages.map((m, i) => m.role === "user" ? <UserMsg key={i} text={m.text} /> : <AiMsg key={i} ds={ds} msg={m} />)}
+        <div className="col" style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+          <div ref={scrollRef} className="col" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 28, overflowY: "visible" }}>
+            {messages.map((m, i) => m.role === "user" ? <UserMsg key={i} text={m.text} /> : <AiMsg key={i} ds={ds} msg={m} onFollowup={send} />)}
             {busy && <Thinking />}
           </div>
           <div style={{ padding: "0 34px 22px" }}>
             <Composer onSend={send} busy={busy} suggestions={sugg} showSugg={onlyGreeting} />
           </div>
         </div>
-        <DataPanel ds={ds} />
+        <DataPanel ds={ds} preview={preview} />
       </div>
     </div>
   );
@@ -393,21 +613,55 @@ function Workspace({ ds, theme, onToggle, onReset }) {
 /* ---------- root ---------- */
 function App() {
   const [ds, setDs] = useState(null);
+  const [preview, setPreview] = useState({ columns: [], rows: [], loading: false, error: "" });
   const [theme, setTheme] = useState(() => (typeof localStorage !== "undefined" && localStorage.getItem("alumniTheme")) || "light");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const loadSeq = useRef(0);
   useEffect(() => { try { localStorage.setItem("alumniTheme", theme); } catch (e) {} }, [theme]);
   const toggle = () => setTheme(t => t === "light" ? "dark" : "light");
 
-  const load = (file) => {
-    setError(""); setLoading(true);
-    window.Alumni.load(file)
-      .then(d => { setDs(d); setLoading(false); })
-      .catch(e => { setError(e.message || "Could not load that file."); setLoading(false); });
+  const load = async (file) => {
+    const seq = loadSeq.current + 1;
+    loadSeq.current = seq;
+    setError(""); setPreview({ columns: [], rows: [], loading: false, error: "" }); setLoading(true);
+
+    let uploaded;
+    try {
+      uploaded = await window.Alumni.load(file);
+    } catch (e) {
+      if (seq === loadSeq.current) {
+        setError(`Upload failed: ${e.message || "Could not load that file."}`);
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (seq !== loadSeq.current) return;
+    setDs(uploaded);
+    setLoading(false);
+
+    if (window.Alumni.isApi && window.Alumni.isApi() && !uploaded.dataset_id) {
+      setPreview({ columns: [], rows: [], loading: false, error: "Preview failed: upload response did not include dataset_id." });
+      return;
+    }
+
+    setPreview({ columns: [], rows: [], loading: true, error: "" });
+    try {
+      const p = await window.Alumni.preview(uploaded.dataset_id || uploaded);
+      if (seq !== loadSeq.current) return;
+      setPreview({ columns: p.columns || [], rows: p.rows || [], loading: false, error: "" });
+      setDs(current => current ? mergeDatasetPreview(current, p) : current);
+    } catch (e) {
+      if (seq !== loadSeq.current) return;
+      const message = e.message || "Could not load preview.";
+      console.error("Preview fetch failed after successful upload:", message);
+      setPreview({ columns: [], rows: [], loading: false, error: `Preview failed: ${message}` });
+    }
   };
 
   if (loading) return (
-    <div className="screen col" data-theme={theme} style={{ width: "100%", height: "100%", alignItems: "center", justifyContent: "center", gap: 18 }}>
+    <div className="screen col" data-theme={theme} style={{ width: "100%", minHeight: "100vh", alignItems: "center", justifyContent: "center", gap: 18 }}>
       <div className="brand-mark" style={{ width: 44, height: 44, animation: "pulse 1.1s ease-in-out infinite" }} />
       <div className="col" style={{ alignItems: "center", gap: 5 }}>
         <span style={{ fontWeight: 700, fontSize: 15 }}>Profiling your spreadsheet…</span>
@@ -417,7 +671,7 @@ function App() {
   );
 
   return ds
-    ? <Workspace ds={ds} theme={theme} onToggle={toggle} onReset={() => setDs(null)} />
+    ? <Workspace ds={ds} preview={preview} theme={theme} onToggle={toggle} onReset={() => { loadSeq.current += 1; setDs(null); setPreview({ columns: [], rows: [], loading: false, error: "" }); }} />
     : <UploadView onLoad={load} loadError={error} theme={theme} onToggle={toggle} />;
 }
 
