@@ -192,6 +192,29 @@ function answerText(value) {
   if (value === "" || value == null) return <span style={{ color: "var(--text-3)" }}>-</span>;
   return String(value);
 }
+function linkedInHref(value) {
+  if (window.Alumni && window.Alumni.helpers && window.Alumni.helpers.linkedInHref) {
+    return window.Alumni.helpers.linkedInHref(value);
+  }
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  if (/^www\./i.test(text)) return `https://${text}`;
+  if (/linkedin\.com/i.test(text)) return `https://${text}`;
+  return "";
+}
+function isLinkedInColumn(column) {
+  return !!(window.Alumni && window.Alumni.helpers && window.Alumni.helpers.isLinkedInColumn && window.Alumni.helpers.isLinkedInColumn(column));
+}
+function tableCellValue(column, value) {
+  if (isLinkedInColumn(column)) {
+    const href = linkedInHref(value);
+    if (value === "" || value == null) return "";
+    if (!href) return answerText(value);
+    return <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--primary)", fontWeight: 700 }}>LinkedIn</a>;
+  }
+  return answerText(value);
+}
 function normalizeAnswerForRender(answer, fallbackText = "") {
   if (answer && answer.answer && typeof answer.answer === "object") answer = answer.answer;
   if (!answer || typeof answer !== "object") {
@@ -245,7 +268,7 @@ function TableBlock({ block }) {
                 {columns.map((c, j) => {
                   const value = Array.isArray(row) ? row[j] : row && row[c];
                   const numeric = typeof value === "number" || /^-?\$?[\d,]+(\.\d+)?%?$/.test(String(value || "").trim());
-                  return <td key={c} className={numeric ? "num" : ""}>{answerText(value)}</td>;
+                  return <td key={c} className={numeric ? "num" : ""}>{tableCellValue(c, value)}</td>;
                 })}
               </tr>
             ))}

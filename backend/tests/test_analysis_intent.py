@@ -111,7 +111,7 @@ def test_missing_optional_semantic_columns_do_not_fail_operation():
 
     assert results[0]["status"] == "ok"
     assert results[0]["metrics"]["rows_matched"] == 1
-    assert results[0]["rows"][0][0] == "Ada"
+    assert results[0]["rows"][0]["NICKNAME"] == "Ada"
 
 
 def test_unavailable_concepts_produce_clarification_instead_of_fake_results():

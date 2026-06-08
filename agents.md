@@ -101,7 +101,7 @@ Completed increments:
    - The LLM is used only for semantic inference and presentation. It does not execute code and does not compute final numeric answers.
    - Intent JSON captures intent, target entity, user goal, concepts, search terms, known entities, semantic columns, filters, sorting, aggregation, desired output, assumptions, and clarification needs.
    - Semantic column resolution supports exact matches, case-insensitive matches, normalized matches, synonym maps, known-entity sample-value hints, and high-confidence fuzzy matches.
-   - Common alumni semantics now map variants such as `occupation -> OCCUPATION`, `employer/company -> EMPLOYER`, `person_name -> NICKNAME or NAME`, `grad_year -> GRAD YR`, and `lifetime_giving/numeric_value -> LIFETIME GIVING` when matching columns exist.
+   - Common alumni semantics now map variants such as `first_name -> First Name`, `last_name -> LastName or Last Name`, `linkedin_url -> LinkedIn URL or LinkedinURL`, `occupation -> OCCUPATION`, `employer/company -> EMPLOYER`, `person_name -> First Name/Last Name or NAME/NICKNAME fallback`, `grad_year -> GRAD YR`, and `lifetime_giving/numeric_value -> LIFETIME GIVING` when matching columns exist.
    - Missing optional semantic columns no longer fail an analysis. For example, a tech-related search can run against `OCCUPATION` and `EMPLOYER` even when `Industry` and `Major` are absent.
    - If inferred filters or requested concepts cannot be applied to available columns, the backend returns a clarification/error plan instead of showing arbitrary unfiltered rows.
    - Deterministic intent fallback still handles common read-only requests when OpenAI is unavailable or returns invalid intent JSON.
@@ -119,14 +119,15 @@ Completed increments:
 
 15. Intent-aware text-search display and clearer metrics
    - Text-search operations now keep `search_columns` separate from `display_columns`.
-   - Row-level lookup answers default to concise display columns: best available name, occupation/job title, employer/company, and `MATCH REASON`.
+   - Alumni/person row-level lookup answers default to clean identity columns when available: `First Name`, `Last Name`, `Occupation`, `Employer`, and `LinkedIn URL` as the final column.
+   - `NICKNAME` is not used as the primary displayed identity when first/last name fields exist. It remains only a fallback when first/last name fields are missing.
    - Search-only columns such as `MAJOR` are no longer displayed just because they were searched. They are shown only when the user asks for them, for example “tech alumni and their majors.”
-   - Added a synthetic `MATCH REASON` column for fuzzy/text searches, such as `Matched OCCUPATION: Software Engineer` or `Matched EMPLOYER: Google`.
+   - Generic fuzzy/text searches can still keep internal match metadata, but normal alumni/person result tables do not show `MATCH REASON`, confidence, scores, model rationale, or other debug fields.
    - Text-search results now return explicit top-level counts: `total_rows`, `raw_match_count`, `matched_row_count`, `returned_row_count`, `display_limit`, and `deduplicated`.
-   - Backward-compatible `metrics` still exist, but deterministic answer rendering now labels filtered metrics as `Unique alumni matched`, `Rows shown`, `Total dataset rows`, `Raw keyword hits`, and `Display limit`.
+   - Backward-compatible `metrics` still exist for generic text searches, but alumni/person query-result views use `total_matches` as the main answer count with the label `Alumni matching criteria`.
    - Table captions now state which columns were searched and explain deduplication or display limits when applicable.
-   - Presenter instructions were tightened so live model presentation does not add extra searched fields to result tables and uses clear metric labels.
-   - Added tests for default tech-alumni display columns, major inclusion only when requested, separate search/display columns, match reasons, raw keyword hits versus unique rows, clear metrics, and display-limit explanations.
+   - Presenter instructions were tightened so live model presentation does not add extra searched fields or debug fields to result tables and does not present display limits as answer counts.
+   - Added tests for default tech-alumni display columns, major inclusion only when requested, separate search/display columns, hidden debug fields, raw keyword hits versus unique rows, clear metrics, and display-limit explanations.
 
 16. Concept-library semantic inference
    - Expanded `backend/app/services/analysis_intent.py` with a built-in concept library for `tech_related`, `software_engineer_role`, and `tech_company`.
@@ -134,8 +135,29 @@ Completed increments:
    - Deterministic semantic inference recognizes tech, software engineer, developer, technical role, tech company, and startup language even when OpenAI is unavailable or under-infers concepts.
    - Tech/software company lookups now plan grouped text searches: role concepts search occupation-like columns, company concepts search employer-like columns, and broader tech concepts can search optional occupation/employer/industry/major columns.
    - Missing optional columns such as `Industry` or `Major` do not fail a tech search when actual `OCCUPATION` and `EMPLOYER` columns are available.
-   - The exact query “Which alumni work in tech as either software engineers or any other role in a tech company?” now plans a valid `contains_any` operation over the full persisted dataset, returns concise display columns with `MATCH REASON`, and explains the inferred criteria.
-   - Added backend tests for tech-company term inference, software-engineer role inference, concept-library term expansion, grouped occupation/employer search, missing optional columns, match reasons, minimal display columns, and clarification when no relevant searchable columns exist.
+   - The exact query “Which alumni work in tech as either software engineers or any other role in a tech company?” now plans a valid strict `contains_any` operation with `filter_mode: tech_people` over the full persisted dataset, returns person-focused display columns, and explains the inferred criteria.
+   - Added backend tests for tech-company term inference, software-engineer role inference, concept-library term expansion, grouped occupation/employer search, missing optional columns, hidden match reasons, minimal display columns, and clarification when no relevant searchable columns exist.
+
+17. Strict tech-alumni filtering and clean result rendering
+   - Added a strict tech-person filter path behind the existing whitelisted `contains_any` operation. It classifies tech alumni by explicit technical titles, strong employer tech indicators, and a configurable known-tech-company list.
+   - Added `backend/app/services/known_tech_companies.json` for ambiguous tech/startup employers such as `FanAmp`, `Cogni DAO`, `Amass Insights`, `Benchmrk`, `Launch Potato`, and `Rune Technologies`.
+   - Tech-person filtering no longer counts loose generic matches such as school mathematics department chairs, oncology directors, generic founders, or generic CEOs unless the title is explicitly technical or the employer is clearly/classifiably tech.
+   - Explicit technical titles such as `Software Engineer`, `Data Scientist`, `IT Director`, and related roles are included regardless of employer.
+   - Results are deduplicated by stable identifiers when available, then by first/last name plus grad year or employer.
+   - Tech-person operation results now separate `total_dataset_rows`, `total_keyword_hits`, `total_matches`, `displayed_count`, `display_limit`, and `uncertain_count`.
+   - Deterministic answer rendering shows `Alumni matching criteria: X` from `total_matches`, optionally `Showing: Y`, and does not use the display limit as the answer.
+   - Frontend answer adaptation strips debug-only table columns unless debug mode is enabled, canonicalizes `LastName`/`last_name` to `Last Name`, canonicalizes LinkedIn columns to `LinkedIn URL`, and renders LinkedIn cells as clickable links.
+   - Added backend and frontend tests for first/last name display, hidden nickname/match-reason/debug fields, LinkedIn column resolution, clickable LinkedIn URL helpers, result count separation, strict tech inclusion/exclusion, known ambiguous tech companies, uncertain matches, and frontend use of `total_matches`.
+
+18. GPT-style alumni tech query fallback
+   - Added a deterministic alumni-tech fallback intent for broad but answerable questions such as “How many alumni are working in tech either as software engineers or as other roles in a tech company?”
+   - If the model asks for clarification about strict versus broad tech matching on this query type, `/api/ask` now uses the default `people_filter` plan instead of returning an `Analysis Plan Error`.
+   - The fallback plan uses `contains_any` with `filter_mode: tech_people`, `intent: people_filter`, `entity: alumni`, `criteria_label: working in tech or technical roles`, and `answer_label: Alumni matching criteria`.
+   - Added reusable classifier helpers in `analysis_toolkit.py`: `is_explicit_technical_title`, `classify_employer_tech_status`, and `is_strong_non_tech_context`.
+   - Confirmed tech matches come from explicit technical titles, strong tech employer keywords, and configurable known tech companies; weak ambiguous employers are tracked as uncertain and are not included in `total_matches`.
+   - People-filter operation rows now use user-facing keys such as `First Name`, `Last Name`, `Occupation`, `Employer`, and `LinkedIn URL`; internal match reasons, confidence, and classifications live under a separate `debug` structure.
+   - Frontend answer adaptation also hides `internal_reason` and raw `classification` columns unless debug mode is enabled, and keeps `total_matches` as the main stat.
+   - Added regression tests for the broad alumni-tech query variants, the model clarification fallback path, strict classifier examples, and frontend analysis-plan-error avoidance for normal people-filter results.
 
 Important files:
 
@@ -149,6 +171,7 @@ Important files:
 - `backend/app/services/analysis_service.py`
 - `backend/app/services/analysis_toolkit.py`
 - `backend/app/services/analysis_intent.py`
+- `backend/app/services/known_tech_companies.json`
 - `backend/app/services/analysis_planner.py`
 - `backend/app/services/analysis_executor.py`
 - `backend/app/services/answer_presenter.py`

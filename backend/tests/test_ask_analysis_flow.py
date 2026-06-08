@@ -80,7 +80,7 @@ def test_bad_planner_json_falls_back_safely(client, monkeypatch):
         responses = FakeResponses()
 
     monkeypatch.setattr(ai_service, "client", FakeClient())
-    df = pd.DataFrame({"Name": ["A"], "Industry": ["Tech"]})
+    df = pd.DataFrame({"Name": ["A"], "Occupation": ["Software Engineer"], "Employer": ["Local Bakery"]})
     dataset_id = upload_dataframe(client, df)
 
     data = ask(client, dataset_id, "Show me all alumni who work in tech")
@@ -119,7 +119,7 @@ def test_ask_route_uses_full_persisted_dataset_not_preview_rows(client):
     answer = assert_valid_answer(data)
     assert data["operation"]["type"] == "contains_any"
     assert data["operation_results"][0]["status"] == "ok"
-    flattened_rows = [" ".join(str(cell) for cell in row) for row in data["operation_results"][0]["rows"]]
+    flattened_rows = [" ".join(str(cell) for cell in row.values()) for row in data["operation_results"][0]["rows"]]
     assert any("Late Tech Match" in row for row in flattened_rows)
     assert any(block["type"] == "table" for block in answer["blocks"])
 
@@ -129,13 +129,34 @@ def test_ask_route_searches_uppercase_occupation_and_employer_for_tech_alumni(cl
     for i in range(15):
         rows.append(
             {
+                "First Name": f"Person{i}",
+                "LastName": "Example",
                 "NICKNAME": f"Person {i}",
                 "OCCUPATION": "Teacher",
                 "EMPLOYER": "School",
+                "LinkedinURL": "",
             }
         )
-    rows.append({"NICKNAME": "Ada", "OCCUPATION": "Software Engineer", "EMPLOYER": "Community Org"})
-    rows.append({"NICKNAME": "Grace", "OCCUPATION": "Product Manager", "EMPLOYER": "Google"})
+    rows.append(
+        {
+            "First Name": "Ada",
+            "LastName": "Lovelace",
+            "NICKNAME": "Ada",
+            "OCCUPATION": "Software Engineer",
+            "EMPLOYER": "Community Org",
+            "LinkedinURL": "https://linkedin.com/in/ada",
+        }
+    )
+    rows.append(
+        {
+            "First Name": "Grace",
+            "LastName": "Hopper",
+            "NICKNAME": "Grace",
+            "OCCUPATION": "Product Manager",
+            "EMPLOYER": "Google",
+            "LinkedinURL": "",
+        }
+    )
     dataset_id = upload_dataframe(client, pd.DataFrame(rows), "uppercase-tech.csv")
 
     data = ask(
@@ -147,30 +168,44 @@ def test_ask_route_searches_uppercase_occupation_and_employer_for_tech_alumni(cl
     answer = assert_valid_answer(data)
     result = data["operation_results"][0]
     assert data["operation"]["type"] == "contains_any"
+    assert data["operation"]["params"]["filter_mode"] == "tech_people"
     groups = data["operation"]["params"]["column_term_groups"]
     assert next(group for group in groups if group["concept"] == "software_engineer_role")["columns"] == ["OCCUPATION"]
     assert next(group for group in groups if group["concept"] == "tech_company")["columns"] == ["EMPLOYER"]
     assert result["status"] == "ok"
     assert result["is_filtered"] is True
     assert result["search_columns"] == ["OCCUPATION", "EMPLOYER"]
-    assert result["display_columns"] == ["NICKNAME", "OCCUPATION", "EMPLOYER", "MATCH REASON"]
-    names = [row[0] for row in result["rows"]]
-    assert names == ["Ada", "Grace"]
+    assert result["intent"] == "people_filter"
+    assert result["entity"] == "alumni"
+    assert result["criteria_label"] == "working in tech or technical roles"
+    assert result["answer_label"] == "Alumni matching criteria"
+    assert result["total_matches"] == 2
+    assert result["displayed_count"] == 2
+    assert result["display_limit"] == 100
+    assert result["display_columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    first_names = [row["First Name"] for row in result["rows"]]
+    assert first_names == ["Ada", "Grace"]
+    assert result["rows"][0]["LinkedIn URL"] == "https://linkedin.com/in/ada"
+    assert result["rows"][1]["LinkedIn URL"] == ""
     table = table_blocks(answer)[0]
-    assert table["columns"] == ["NICKNAME", "OCCUPATION", "EMPLOYER", "MATCH REASON"]
+    assert table["columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
     rendered = " ".join(str(block) for block in answer["blocks"])
-    assert "I treated tech alumni as records whose occupation or employer matched" in rendered
+    assert "I used the default alumni tech filter" in rendered
     assert "Searched columns: OCCUPATION, EMPLOYER" in rendered
     assert "no search terms" not in rendered.lower()
-    assert "Unique alumni matched" in metrics_labels(answer)
-    assert "Rows shown" in metrics_labels(answer)
-    assert "Total dataset rows" in metrics_labels(answer)
+    assert "Alumni matching criteria" in metrics_labels(answer)
+    assert "Rows shown" not in metrics_labels(answer)
+    assert "Display limit" not in metrics_labels(answer)
+    assert "NICKNAME" not in rendered
+    assert "MATCH REASON" not in rendered
     assert "Person 0" not in rendered
 
 
 def test_tech_alumni_query_does_not_display_major_unless_requested(client):
     df = pd.DataFrame(
         {
+            "First Name": ["Ada", "Grace"],
+            "Last Name": ["Lovelace", "Hopper"],
             "NICKNAME": ["Ada", "Grace"],
             "OCCUPATION": ["Software Engineer", "Teacher"],
             "EMPLOYER": ["Community Org", "School"],
@@ -184,18 +219,24 @@ def test_tech_alumni_query_does_not_display_major_unless_requested(client):
     answer = assert_valid_answer(data)
     result = data["operation_results"][0]
     assert "MAJOR" in result["search_columns"]
-    assert result["display_columns"] == ["NICKNAME", "OCCUPATION", "EMPLOYER", "MATCH REASON"]
-    assert table_blocks(answer)[0]["columns"] == ["NICKNAME", "OCCUPATION", "EMPLOYER", "MATCH REASON"]
-    assert result["rows"][0][-1] == "Matched OCCUPATION: Software Engineer"
+    assert result["display_columns"] == ["First Name", "Last Name", "Occupation", "Employer"]
+    assert table_blocks(answer)[0]["columns"] == ["First Name", "Last Name", "Occupation", "Employer"]
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert "MAJOR" not in table_blocks(answer)[0]["columns"]
+    assert "MATCH REASON" not in rendered
+    assert "NICKNAME" not in rendered
 
 
 def test_tech_alumni_query_displays_major_when_requested(client):
     df = pd.DataFrame(
         {
+            "First Name": ["Ada", "Grace"],
+            "LastName": ["Lovelace", "Hopper"],
             "NICKNAME": ["Ada", "Grace"],
             "OCCUPATION": ["Software Engineer", "Teacher"],
             "EMPLOYER": ["Community Org", "School"],
             "MAJOR": ["Computer Science", "History"],
+            "LinkedIn": ["linkedin.com/in/ada", ""],
         }
     )
     dataset_id = upload_dataframe(client, df, "major-requested.csv")
@@ -204,8 +245,98 @@ def test_tech_alumni_query_displays_major_when_requested(client):
 
     answer = assert_valid_answer(data)
     result = data["operation_results"][0]
-    assert result["display_columns"] == ["NICKNAME", "OCCUPATION", "EMPLOYER", "MAJOR", "MATCH REASON"]
-    assert table_blocks(answer)[0]["columns"] == ["NICKNAME", "OCCUPATION", "EMPLOYER", "MAJOR", "MATCH REASON"]
+    assert result["display_columns"] == ["First Name", "Last Name", "Occupation", "Employer", "MAJOR", "LinkedIn URL"]
+    assert table_blocks(answer)[0]["columns"] == ["First Name", "Last Name", "Occupation", "Employer", "MAJOR", "LinkedIn URL"]
+    assert result["rows"][0]["LinkedIn URL"] == "linkedin.com/in/ada"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How many alumni are working in tech either as software engineers or as other roles in a tech company",
+        "what alumni work in tech as either a software engineer or some other role in a tech company",
+        "show me alumni in software engineering or at tech companies",
+        "which alumni are in tech",
+    ],
+)
+def test_broad_alumni_tech_queries_do_not_return_analysis_plan_errors(client, question):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace", "Marie"],
+            "Last Name": ["Lovelace", "Hopper", "Curie"],
+            "Occupation": ["Software Engineer", "Founder", "Director of Hematologic Oncology"],
+            "Employer": ["Local Bakery", "Google", "Holy Name Medical Center"],
+            "LinkedIn URL": ["linkedin.com/in/ada", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "broad-tech.csv")
+
+    data = ask(client, dataset_id, question)
+
+    answer = assert_valid_answer(data)
+    result = data["result"]
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert answer.get("title") != "Analysis Plan Error"
+    assert "could not create a valid analysis plan" not in rendered.lower()
+    assert result["intent"] == "people_filter"
+    assert result["entity"] == "alumni"
+    assert "total_matches" in result
+    assert "displayed_count" in result
+    assert "rows" in result
+    assert result["visible_columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    assert result["total_matches"] == 2
+
+
+def test_model_clarification_for_alumni_tech_query_uses_default_people_filter(client, monkeypatch):
+    class FakeResponses:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return type(
+                    "FakeResponse",
+                    (),
+                    {
+                        "output_text": '{"intent":"unknown","target_entity":"dataset","user_goal":"How many alumni are working in tech either as software engineers or other roles in a tech company?","concepts":[],"semantic_columns":{},"filters":[],"sort":null,"aggregation":null,"desired_output":{"format":"markdown","semantic_columns":[],"limit":100},"assumptions":[],"clarification_needed":true,"clarifying_question":"Should I count only explicit software engineer titles and clearly identifiable tech companies, or use a broader keyword-based definition?"}'
+                    },
+                )()
+            return type("FakeResponse", (), {"output_text": "not presenter json"})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(ai_service, "client", FakeClient())
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace", "Erin"],
+            "Last Name": ["Lovelace", "Hopper", "Doctor"],
+            "Occupation": ["Software Engineer", "Founder", "Director of Hematologic Oncology"],
+            "Employer": ["Local Bakery", "FanAmp", "Holy Name Medical Center"],
+            "LinkedInURL": ["linkedin.com/in/ada", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "clarification-fallback.csv")
+
+    data = ask(
+        client,
+        dataset_id,
+        "How many alumni are working in tech either as software engineers or as other roles in a tech company?",
+    )
+
+    answer = assert_valid_answer(data)
+    result = data["result"]
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert answer.get("title") != "Analysis Plan Error"
+    assert "could not create a valid analysis plan" not in rendered.lower()
+    assert data["analysis_intent"]["intent"] == "people_filter"
+    assert data["operation"]["params"]["filter_mode"] == "tech_people"
+    assert result["intent"] == "people_filter"
+    assert result["entity"] == "alumni"
+    assert result["total_matches"] == 2
+    assert result["uncertain_count"] == 0
+    assert [row["First Name"] for row in result["rows"]] == ["Ada", "Grace"]
 
 
 def test_display_limit_is_explained_when_rows_are_capped(client):
@@ -222,12 +353,13 @@ def test_display_limit_is_explained_when_rows_are_capped(client):
 
     answer = assert_valid_answer(data)
     result = data["operation_results"][0]
-    assert result["matched_row_count"] == 3
-    assert result["returned_row_count"] == 1
+    assert result["total_matches"] == 3
+    assert result["displayed_count"] == 1
     assert result["display_limit"] == 1
     rendered = " ".join(str(block) for block in answer["blocks"])
-    assert "Display limit" in rendered
-    assert "Showing 1 rows because the display limit is 1" in rendered
+    assert "Alumni matching criteria" in rendered
+    assert "Showing" in rendered
+    assert "Display limit" not in rendered
 
 
 def test_presenter_invalid_json_falls_back_to_structured_answer(client, monkeypatch):

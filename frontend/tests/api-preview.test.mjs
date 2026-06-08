@@ -313,6 +313,178 @@ test("ask safely adapts legacy plain-text backend answers", async () => {
   ]);
 });
 
+test("ask sanitizes alumni people results for visible columns and total match metrics", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        answer: {
+          title: "Tech alumni",
+          summary: "Found matching alumni.",
+          blocks: [
+            {
+              type: "metrics",
+              items: [
+                { label: "Rows shown", value: "100" },
+                { label: "Display limit", value: "100" },
+              ],
+            },
+            {
+              type: "table",
+              title: "Rows",
+              columns: [
+                "Nickname",
+                "First Name",
+                "LastName",
+                "Occupation",
+                "Employer",
+                "Match Reason",
+                "confidence",
+                "internal_reason",
+                "classification",
+                "LinkedinURL",
+              ],
+              rows: [
+                [
+                  "Ada",
+                  "Ada",
+                  "Lovelace",
+                  "Software Engineer",
+                  "Local Bakery",
+                  "Matched OCCUPATION",
+                  "0.99",
+                  "internal",
+                  "technical_title",
+                  "linkedin.com/in/ada",
+                ],
+                [
+                  "Grace",
+                  "Grace",
+                  "Hopper",
+                  "CEO",
+                  "Google",
+                  "Matched EMPLOYER",
+                  "0.95",
+                  "internal",
+                  "known_tech_company",
+                  "",
+                ],
+              ],
+            },
+          ],
+          followups: [],
+        },
+        operation: { type: "contains_any" },
+        result: {
+          intent: "people_filter",
+          entity: "alumni",
+          answer_label: "Alumni matching criteria",
+          total_matches: 74,
+          displayed_count: 2,
+          display_limit: 100,
+          uncertain_count: 8,
+          visible_columns: ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"],
+        },
+      }),
+    }),
+  });
+
+  const msg = await Alumni.ask({ dataset_id: "dataset-1" }, "Show tech alumni");
+  const metrics = msg.answer.blocks.find(block => block.type === "metrics");
+  const table = msg.answer.blocks.find(block => block.type === "table");
+
+  assert.deepEqual(plain(metrics.items), [
+    { label: "Alumni matching criteria", value: "74" },
+    { label: "Showing", value: "2" },
+    { label: "Uncertain not counted", value: "8" },
+  ]);
+  assert.deepEqual(plain(table.columns), ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]);
+  assert.deepEqual(plain(table.rows), [
+    ["Ada", "Lovelace", "Software Engineer", "Local Bakery", "linkedin.com/in/ada"],
+    ["Grace", "Hopper", "CEO", "Google", ""],
+  ]);
+});
+
+test("frontend helpers resolve alumni columns and LinkedIn links", () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+
+  assert.equal(Alumni._test.canonicalDisplayColumn("last_name"), "Last Name");
+  assert.equal(Alumni._test.canonicalDisplayColumn("LastName"), "Last Name");
+  assert.equal(Alumni._test.canonicalDisplayColumn("LinkedinURL"), "LinkedIn URL");
+  assert.equal(Alumni._test.isLinkedInColumn("linkedin_url"), true);
+  assert.equal(Alumni._test.linkedInHref("linkedin.com/in/ada"), "https://linkedin.com/in/ada");
+  assert.equal(Alumni._test.linkedInHref("https://linkedin.com/in/ada"), "https://linkedin.com/in/ada");
+  assert.equal(Alumni._test.linkedInHref(""), "");
+  assert.equal(Alumni._test.isDebugColumn("classification_reason"), true);
+  assert.equal(Alumni._test.isDebugColumn("Match Reason"), true);
+  assert.equal(Alumni._test.isDebugColumn("internal_reason"), true);
+  assert.equal(Alumni._test.isDebugColumn("classification"), true);
+});
+
+test("ask adapts alumni tech query without showing an analysis-plan error", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          answer: {
+            title: "Analysis Result",
+            summary: "Alumni matching criteria: 2",
+            blocks: [
+              {
+                type: "metrics",
+                items: [{ label: "Display limit", value: "100" }],
+              },
+              {
+                type: "table",
+                columns: ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"],
+                rows: [
+                  ["Ada", "Lovelace", "Software Engineer", "Local Bakery", "linkedin.com/in/ada"],
+                  ["Grace", "Hopper", "Founder", "FanAmp", ""],
+                ],
+              },
+            ],
+            followups: [],
+          },
+          operation: { type: "contains_any" },
+          result: {
+            intent: "people_filter",
+            entity: "alumni",
+            answer_label: "Alumni matching criteria",
+            total_matches: 2,
+            displayed_count: 2,
+            display_limit: 100,
+            uncertain_count: 0,
+            visible_columns: ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"],
+          },
+        }),
+      };
+    },
+  });
+
+  const query = "How many alumni are working in tech either as software engineers or as other roles in a tech company?";
+  const msg = await Alumni.ask({ dataset_id: "dataset-1" }, query);
+  const body = JSON.parse(calls[0].options.body);
+  const rendered = JSON.stringify(msg.answer);
+  const metrics = msg.answer.blocks.find(block => block.type === "metrics");
+
+  assert.equal(body.question, query);
+  assert.equal(rendered.includes("Analysis Plan Error"), false);
+  assert.equal(rendered.includes("could not create a valid analysis plan"), false);
+  assert.deepEqual(plain(metrics.items), [
+    { label: "Alumni matching criteria", value: "2" },
+  ]);
+});
+
 test("summary fetches by dataset_id", async () => {
   const calls = [];
   const Alumni = loadApi({

@@ -9,6 +9,7 @@ from app.services.analysis_executor import MAX_OPERATIONS
 
 INTENTS = {
     "find_records",
+    "people_filter",
     "aggregate",
     "summarize_dataset",
     "inspect_missing",
@@ -22,6 +23,8 @@ FILTER_MATCH_MODES = {"contains_any", "contains_all", "equals"}
 AGGREGATION_OPERATIONS = {"count", "sum", "average", "mean", "avg", "summary", "numeric_summary", "correlation", "date_summary"}
 
 SEMANTIC_COLUMN_SYNONYMS = {
+    "first_name": ["first name", "firstname", "first_name", "given name"],
+    "last_name": ["last name", "lastname", "last_name", "surname", "family name"],
     "person_name": ["name", "full name", "nickname", "preferred name", "alumni name", "constituent name", "customer"],
     "occupation": ["occupation", "job title", "job", "role", "position", "profession", "title"],
     "employer": ["employer", "company", "organization", "organisation", "firm", "business", "corp", "corporation"],
@@ -36,6 +39,7 @@ SEMANTIC_COLUMN_SYNONYMS = {
     "revenue": ["revenue", "sales", "income"],
     "orders": ["orders", "order count", "purchases"],
     "email": ["email", "email address", "e-mail"],
+    "linkedin_url": ["linkedin url", "linkedinurl", "linkedin_url", "linkedin", "linked in", "linked in url"],
     "phone": ["phone", "phone number", "mobile"],
     "city": ["city", "location", "town"],
     "state": ["state", "province", "region"],
@@ -44,10 +48,8 @@ SEMANTIC_COLUMN_SYNONYMS = {
 TECH_SEARCH_TERMS = [
     "software",
     "software engineer",
-    "engineer",
     "developer",
     "programmer",
-    "data",
     "data scientist",
     "data engineer",
     "analytics",
@@ -64,9 +66,16 @@ TECH_SEARCH_TERMS = [
     "cloud",
     "cybersecurity",
     "security",
-    "startup",
-    "founder",
     "cto",
+    "information technology",
+    "cybersecurity",
+    "solutions engineer",
+    "sales engineer",
+    "technical consultant",
+    "software architect",
+    "devops",
+    "site reliability",
+    "sre",
 ]
 
 TECH_KNOWN_ENTITIES = [
@@ -92,6 +101,35 @@ TECH_KNOWN_ENTITIES = [
     "Stripe",
     "Datadog",
     "Snowflake",
+    "Palantir",
+    "MongoDB",
+    "Atlassian",
+    "ServiceNow",
+    "Intuit",
+    "FanAmp",
+    "Cogni DAO",
+    "Amass Insights",
+    "Benchmrk",
+    "Launch Potato",
+    "Rune Technologies",
+]
+
+ALUMNI_TERMS = ["alumni", "alum", "alums"]
+ALUMNI_TECH_FALLBACK_TERMS = [
+    "working in tech",
+    "work in tech",
+    "tech company",
+    "tech companies",
+    "technology company",
+    "technology companies",
+    "software engineer",
+    "software engineers",
+    "software developer",
+    "software developers",
+    "technical role",
+    "technical roles",
+    "roles in tech",
+    "in tech",
 ]
 
 CONCEPT_LIBRARY = {
@@ -118,6 +156,17 @@ CONCEPT_LIBRARY = {
             "mobile developer",
             "technical lead",
             "CTO",
+            "data scientist",
+            "data engineer",
+            "information technology",
+            "cybersecurity",
+            "solutions engineer",
+            "sales engineer",
+            "technical consultant",
+            "software architect",
+            "devops",
+            "site reliability",
+            "SRE",
         ],
         "known_entities": [],
         "default_semantic_columns": ["occupation"],
@@ -133,6 +182,17 @@ CONCEPT_LIBRARY = {
             "AI",
             "data",
             "startup",
+            "technologies",
+            "data",
+            "digital",
+            "analytics",
+            "cybersecurity",
+            "fintech",
+            "blockchain",
+            "crypto",
+            "SaaS",
+            "app",
+            "internet",
         ],
         "known_entities": TECH_KNOWN_ENTITIES,
         "default_semantic_columns": ["employer"],
@@ -183,7 +243,7 @@ Return this JSON shape:
   "aggregation": null,
   "desired_output": {
     "format": "table | metrics | ranked_list | markdown",
-    "semantic_columns": ["person_name", "occupation", "employer", "matched_reason"],
+    "semantic_columns": ["first_name", "last_name", "occupation", "employer", "linkedin_url"],
     "limit": 100
   },
   "assumptions": [],
@@ -223,7 +283,16 @@ def infer_analysis_intent(question, dataset_context):
         intent["assumptions"].append("Intent model returned invalid JSON; used deterministic inference.")
         return intent, True, ""
 
-    return validate_analysis_intent(parsed)
+    intent, valid, error = validate_analysis_intent(parsed)
+    if _should_use_alumni_tech_fallback(question, intent):
+        fallback = alumni_tech_fallback_intent(question)
+        fallback["assumptions"].extend(intent.get("assumptions") or [])
+        if intent.get("clarification_needed"):
+            fallback["assumptions"].append(
+                "The intent model requested clarification, so I used the default alumni tech filter."
+            )
+        return fallback, True, ""
+    return intent, valid, error
 
 
 def validate_analysis_intent(value):
@@ -339,8 +408,11 @@ def validate_analysis_intent(value):
 def intent_to_analysis_plan(intent, dataset_context):
     intent = intent if isinstance(intent, dict) else _unknown_intent("Invalid analysis intent.")
     if intent.get("clarification_needed"):
-        reason = intent.get("clarifying_question") or "Clarification is needed before this analysis can run."
-        return _empty_plan(reason)
+        if _should_use_alumni_tech_fallback(intent.get("user_goal") or intent.get("clarifying_question"), intent):
+            intent = alumni_tech_fallback_intent(intent.get("user_goal") or intent.get("clarifying_question"))
+        else:
+            reason = intent.get("clarifying_question") or "Clarification is needed before this analysis can run."
+            return _empty_plan(reason)
 
     resolved = resolve_intent_semantic_columns(intent, dataset_context)
     assumptions = list(intent.get("assumptions") or [])
@@ -353,7 +425,7 @@ def intent_to_analysis_plan(intent, dataset_context):
         columns = _resolved_columns_for_requested(intent, resolved, intent.get("desired_output", {}).get("semantic_columns"))
         return _plan([{"type": "missing_values", "params": {"columns": columns or None}}], "metrics", assumptions)
 
-    if intent.get("intent") == "find_records":
+    if intent.get("intent") in {"find_records", "people_filter"}:
         return _plan_find_records(intent, resolved, assumptions)
 
     if intent.get("intent") == "rank_records":
@@ -369,12 +441,17 @@ def resolve_intent_semantic_columns(intent, dataset_context):
     columns = dataset_context.get("columns") or []
     actual_names = [str(column.get("name")) for column in columns if column.get("name") is not None]
     semantic_aliases = dict(intent.get("semantic_columns") or {})
+    concepts = intent.get("concepts") or []
 
     requested_keys = set(semantic_aliases)
     for filter_spec in intent.get("filters") or []:
         requested_keys.update(filter_spec.get("apply_to_semantic_columns") or [])
     desired = intent.get("desired_output") or {}
     requested_keys.update(item for item in desired.get("semantic_columns") or [] if item != "matched_reason")
+    if "person_name" in requested_keys:
+        requested_keys.update(["first_name", "last_name"])
+    if any(_is_tech_concept(concept.get("name")) for concept in concepts):
+        requested_keys.update(["first_name", "last_name", "occupation", "employer", "linkedin_url"])
     aggregation = intent.get("aggregation") or {}
     requested_keys.update(
         item
@@ -385,7 +462,6 @@ def resolve_intent_semantic_columns(intent, dataset_context):
     if sort.get("semantic_column"):
         requested_keys.add(sort["semantic_column"])
 
-    concepts = intent.get("concepts") or []
     known_entities = []
     for concept in concepts:
         known_entities.extend(concept.get("known_entities") or [])
@@ -422,6 +498,9 @@ def heuristic_intent(question, dataset_context):
         return _base_intent("summarize_dataset", "dataset", question, "metrics")
 
     if _is_tech_related_question(question_lower):
+        if _is_alumni_tech_fallback_question(question_lower):
+            return alumni_tech_fallback_intent(question)
+
         intent = _base_intent("find_records", "rows", question, "table")
         intent["concepts"] = _heuristic_tech_concepts(question_lower)
         intent["semantic_columns"] = {
@@ -523,18 +602,38 @@ def _plan_find_records(intent, resolved, assumptions):
 
     return_columns = _return_columns_for_intent(intent, resolved, default=all_columns)
     operation_type = "contains_any"
+    strict_people_filter = (
+        intent.get("intent") == "people_filter"
+        or any(_is_tech_concept(concept.get("name")) for concept in intent.get("concepts") or [])
+    )
+    params = {
+        "columns": all_columns,
+        "terms": list(dict.fromkeys(all_terms)),
+        "column_term_groups": groups,
+        "display_columns": return_columns,
+        "question": intent.get("user_goal") or "",
+        "limit": (intent.get("desired_output") or {}).get("limit", 100),
+    }
+    if strict_people_filter:
+        params["filter_mode"] = "tech_people"
+        params["people_filter"] = {
+            "intent": "people_filter",
+            "entity": "alumni",
+            "criteria_label": "working in tech or technical roles",
+            "answer_label": "Alumni matching criteria",
+            "filters": {
+                "include_explicit_technical_titles": True,
+                "include_strong_tech_employer_names": True,
+                "include_known_tech_companies": True,
+                "include_high_confidence_model_classified_tech_companies": True,
+                "exclude_low_confidence_ambiguous_companies": True,
+            },
+        }
     return _plan(
         [
             {
                 "type": operation_type,
-                "params": {
-                    "columns": all_columns,
-                    "terms": list(dict.fromkeys(all_terms)),
-                    "column_term_groups": groups,
-                    "display_columns": return_columns,
-                    "question": intent.get("user_goal") or "",
-                    "limit": (intent.get("desired_output") or {}).get("limit", 100),
-                },
+                "params": params,
             }
         ],
         (intent.get("desired_output") or {}).get("format", "table"),
@@ -664,13 +763,28 @@ def _resolve_semantic_column(semantic_key, aliases, column_contexts, actual_name
 def _resolution_assumptions(resolved):
     if not resolved:
         return []
-    pieces = [f"{semantic} -> {actual}" for semantic, actual in sorted(resolved.items())]
+    pieces = []
+    has_first_or_last = bool(resolved.get("first_name") or resolved.get("last_name"))
+    for semantic, actual in sorted(resolved.items()):
+        if semantic == "person_name" and has_first_or_last:
+            continue
+        pieces.append(f"{semantic} -> {actual}")
+    if not pieces:
+        return []
     return ["Semantic columns were resolved as: " + "; ".join(pieces) + "."]
 
 
 def _resolved_columns_for_requested(intent, resolved, requested):
     columns = []
     for semantic_key in requested or []:
+        if semantic_key == "person_name":
+            first = _first_resolved(resolved, "first_name")
+            last = _first_resolved(resolved, "last_name")
+            if first or last:
+                for column in [first, last]:
+                    if column and column not in columns:
+                        columns.append(column)
+                continue
         column = _first_resolved(resolved, semantic_key)
         if column and column not in columns:
             columns.append(column)
@@ -688,7 +802,7 @@ def _return_columns_for_intent(intent, resolved, default):
 
 
 def _display_semantics_for_question(question_lower):
-    semantics = ["person_name", "occupation", "employer"]
+    semantics = ["first_name", "last_name", "occupation", "employer"]
     requested = {
         "major": ["major", "majors", "degree", "degrees", "field of study"],
         "grad_year": ["graduation year", "graduation years", "class year", "class years", "grad year", "grad yr"],
@@ -701,8 +815,67 @@ def _display_semantics_for_question(question_lower):
         if _contains_word_or_phrase(question_lower, terms):
             insert_at = 1 if semantic == "grad_year" else len(semantics)
             semantics.insert(insert_at, semantic)
-    semantics.append("matched_reason")
+    semantics.append("linkedin_url")
     return list(dict.fromkeys(semantics))
+
+
+def alumni_tech_fallback_intent(question):
+    intent = _base_intent("people_filter", "rows", question, "table")
+    intent["entity"] = "alumni"
+    intent["criteria_label"] = "working in tech or technical roles"
+    intent["answer_label"] = "Alumni matching criteria"
+    intent["concepts"] = [_concept_from_library("software_engineer_role"), _concept_from_library("tech_company")]
+    intent["semantic_columns"] = {
+        "first_name": SEMANTIC_COLUMN_SYNONYMS["first_name"],
+        "last_name": SEMANTIC_COLUMN_SYNONYMS["last_name"],
+        "occupation": SEMANTIC_COLUMN_SYNONYMS["occupation"],
+        "employer": SEMANTIC_COLUMN_SYNONYMS["employer"],
+        "linkedin_url": SEMANTIC_COLUMN_SYNONYMS["linkedin_url"],
+    }
+    intent["filters"] = [
+        {
+            "concept": "software_engineer_role",
+            "apply_to_semantic_columns": ["occupation"],
+            "match_mode": "contains_any",
+        },
+        {
+            "concept": "tech_company",
+            "apply_to_semantic_columns": ["employer"],
+            "match_mode": "contains_any",
+        },
+    ]
+    intent["desired_output"] = {
+        "format": "table",
+        "semantic_columns": ["first_name", "last_name", "occupation", "employer", "linkedin_url"],
+        "limit": _extract_requested_count(str(question or "").lower(), 100),
+    }
+    intent["assumptions"] = [
+        "I used the default alumni tech filter: explicit technical titles, strong tech employer names, known technology companies, and high-confidence classified tech employers count as confirmed matches; uncertain matches are kept separate."
+    ]
+    return intent
+
+
+def _should_use_alumni_tech_fallback(question, intent=None):
+    question_lower = str(question or "").lower()
+    if not _is_alumni_tech_fallback_question(question_lower):
+        return False
+    if not intent:
+        return True
+    if intent.get("clarification_needed"):
+        return True
+    if intent.get("intent") in {"unknown", ""}:
+        return True
+    return False
+
+
+def _is_alumni_tech_fallback_question(question_lower):
+    has_alumni = _contains_word_or_phrase(question_lower, ALUMNI_TERMS)
+    has_tech = _contains_word_or_phrase(question_lower, ALUMNI_TECH_FALLBACK_TERMS)
+    return has_alumni and has_tech
+
+
+def _is_tech_concept(name):
+    return _clean_key(name) in {"tech_related", "software_engineer_role", "tech_company"}
 
 
 def _first_resolved(resolved, semantic_key):

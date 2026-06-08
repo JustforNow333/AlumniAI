@@ -1,7 +1,13 @@
 import numpy as np
 import pandas as pd
 
-from app.services.analysis_toolkit import MAX_LIMIT, execute_operation
+from app.services.analysis_toolkit import (
+    MAX_LIMIT,
+    classify_employer_tech_status,
+    execute_operation,
+    is_explicit_technical_title,
+    is_strong_non_tech_context,
+)
 from app.services.answer_schema import deterministic_answer_from_results
 
 
@@ -300,6 +306,164 @@ def test_text_search_counts_raw_keyword_hits_unique_rows_and_limit():
     assert result["deduplicated"] is True
     assert any(warning["type"] == "deduplicated_text_matches" for warning in result["warnings"])
     assert any(warning["type"] == "display_limit_applied" for warning in result["warnings"])
+
+
+def test_tech_people_filter_uses_clean_person_columns_counts_and_strict_matching():
+    df = pd.DataFrame(
+        {
+            "First Name": [
+                "Alice",
+                "Bob",
+                "Carol",
+                "Dan",
+                "Erin",
+                "Frank",
+                "Gina",
+                "Hank",
+                "Ivy",
+                "Jack",
+                "Jack",
+                "Ken",
+                "Lee",
+            ],
+            "LastName": [
+                "School",
+                "Hospital",
+                "University",
+                "School",
+                "Hospital",
+                "Bakery",
+                "Rune",
+                "Fanamp",
+                "Dao",
+                "Bakery",
+                "Bakery",
+                "Ventures",
+                "Google",
+            ],
+            "Nickname": [
+                "A",
+                "B",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G",
+                "H",
+                "I",
+                "J",
+                "J2",
+                "K",
+                "L",
+            ],
+            "Occupation": [
+                "Mathematics Department Chair (Middle School)",
+                "Data Scientist",
+                "Software Engineer",
+                "IT Director",
+                "Director of Hematologic Oncology",
+                "Founder",
+                "Founder",
+                "Founder",
+                "Founder",
+                "Software Engineer",
+                "Software Engineer",
+                "CEO",
+                "CEO",
+            ],
+            "Employer": [
+                "Northview Middle School",
+                "Hospital for Special Surgery",
+                "Local University",
+                "Public High School",
+                "Hospital for Special Surgery",
+                "Local Bakery",
+                "Rune Technologies",
+                "FanAmp",
+                "Cogni DAO",
+                "Local Bakery",
+                "Local Bakery",
+                "Bright Ventures",
+                "Google",
+            ],
+            "LinkedinURL": [
+                "",
+                "https://linkedin.com/in/bob",
+                "",
+                "linkedin.com/in/dan",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+        }
+    )
+
+    result = execute_operation(
+        df,
+        {
+            "type": "contains_any",
+            "params": {
+                "columns": ["Occupation", "Employer"],
+                "terms": ["software", "data scientist", "it", "technologies", "google"],
+                "display_columns": ["First Name", "LastName", "Occupation", "Employer", "LinkedinURL", "MATCH REASON"],
+                "filter_mode": "tech_people",
+                "limit": 100,
+            },
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["intent"] == "people_filter"
+    assert result["entity"] == "alumni"
+    assert result["answer_label"] == "Alumni matching criteria"
+    assert result["columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    assert result["visible_columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    assert "Nickname" not in result["columns"]
+    assert "MATCH REASON" not in result["columns"]
+    assert result["total_dataset_rows"] == 13
+    assert result["total_matches"] == 8
+    assert result["displayed_count"] == 8
+    assert result["display_limit"] == 100
+    assert result["uncertain_count"] == 1
+    assert result["metrics"]["total_matches"] == 8
+    assert result["metrics"]["displayed_count"] == 8
+    assert result["metrics"]["display_limit"] == 100
+    assert result["metrics"]["uncertain_count"] == 1
+
+    rows_by_first = {row["First Name"]: row for row in result["rows"]}
+    assert set(rows_by_first) == {"Bob", "Carol", "Dan", "Gina", "Hank", "Ivy", "Jack", "Lee"}
+    assert rows_by_first["Bob"]["LinkedIn URL"] == "https://linkedin.com/in/bob"
+    assert rows_by_first["Carol"]["LinkedIn URL"] == ""
+    assert "Alice" not in rows_by_first
+    assert "Erin" not in rows_by_first
+    assert "Frank" not in rows_by_first
+    assert "Ken" not in rows_by_first
+    assert "debug" in result
+    assert all("match_reason" not in row for row in result["rows"])
+
+
+def test_technical_title_and_employer_classification_helpers():
+    assert is_explicit_technical_title("Software Engineer") is True
+    assert is_explicit_technical_title("Data Scientist") is True
+    assert is_explicit_technical_title("IT Director") is True
+    assert is_explicit_technical_title("Founder") is False
+    assert is_explicit_technical_title("Chief Executive Officer") is False
+
+    assert is_strong_non_tech_context("Director of Hematologic Oncology", "Holy Name Medical Center") is True
+    assert is_strong_non_tech_context("Software Engineer", "Local Bakery") is False
+
+    assert classify_employer_tech_status("Rune Technologies")["status"] == "confirmed_tech"
+    assert classify_employer_tech_status("FanAmp")["status"] == "confirmed_tech"
+    assert classify_employer_tech_status("Cogni DAO")["status"] == "confirmed_tech"
+    ambiguous = classify_employer_tech_status("Bright Ventures")
+    assert ambiguous["status"] == "uncertain"
+    assert ambiguous["confidence"] < 0.75
 
 
 def test_failed_filter_does_not_return_unfiltered_rows():

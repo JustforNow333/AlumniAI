@@ -56,6 +56,12 @@ backend/data/*
 htmlcov/
 .coverage.*
 .cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+.hypothesis/
 nosetests.xml
 coverage.xml
 
@@ -75,6 +81,8 @@ dist/
 frontend/dist/
 build/
 frontend/build/
+.vite/
+frontend/.vite/
 
 # =========================
 # OS / editor files
@@ -97,4 +105,6 @@ logs/
 *.tmp
 *.temp
 *.bak
+*.orig
+*.rej
 *.swp

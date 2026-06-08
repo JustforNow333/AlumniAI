@@ -19,9 +19,11 @@ Use operation_results as the source of truth. Do not invent numbers.
 Mention assumptions and warnings when relevant.
 Keep the answer concise.
 For text-search results, use display_columns/columns exactly as provided. Do not add extra
-searched fields to tables. Explain searched columns, deduplication, and row limits when present.
-Use clear metric labels: Unique alumni matched, Rows shown, Total dataset rows, Raw keyword hits,
-and Display limit. Avoid vague labels such as Rows matched when matched_row_count is available.
+searched fields or debug fields to tables.
+For people_filter alumni results, use answer_label with total_matches as the main metric, optionally
+add Showing with displayed_count, and do not present display_limit as the answer.
+Do not show match_reason, confidence, classification reason, uncertainty reason, or model rationale
+in the main visible table.
 Prefer tables for row-level results, metrics for counts and summaries, and ranked_list for recommendations.
 If an operation failed, explain what went wrong and suggest a better question.
 
@@ -81,7 +83,10 @@ def present_answer(question, plan, operation_results, dataset_context):
         return fallback
 
     answer, valid = normalize_answer(parsed, fallback_summary=fallback.get("summary"))
-    return _ensure_notes(answer, plan, operation_results) if valid else fallback
+    if not valid:
+        return fallback
+    answer = _ensure_people_filter_blocks(answer, operation_results, fallback)
+    return _ensure_notes(answer, plan, operation_results)
 
 
 def planner_failure_answer(reason):
@@ -124,6 +129,33 @@ def _ensure_notes(answer, plan, operation_results):
     updated = dict(answer)
     updated["blocks"] = list(updated.get("blocks") or [])
     updated["blocks"].append({"type": "markdown", "content": "\n".join(missing_notes)})
+    normalized, valid = normalize_answer(updated, fallback_summary=answer.get("summary"))
+    return normalized if valid else answer
+
+
+def _ensure_people_filter_blocks(answer, operation_results, fallback):
+    if not any(
+        result.get("intent") == "people_filter" and result.get("entity") == "alumni"
+        for result in operation_results
+        if isinstance(result, dict)
+    ):
+        return answer
+
+    source_blocks = [
+        block
+        for block in fallback.get("blocks", [])
+        if isinstance(block, dict) and block.get("type") in {"metrics", "table"}
+    ]
+    if not source_blocks:
+        return answer
+
+    updated = dict(answer)
+    other_blocks = [
+        block
+        for block in updated.get("blocks", [])
+        if isinstance(block, dict) and block.get("type") not in {"metrics", "table"}
+    ]
+    updated["blocks"] = source_blocks + other_blocks
     normalized, valid = normalize_answer(updated, fallback_summary=answer.get("summary"))
     return normalized if valid else answer
 

@@ -7,7 +7,7 @@ HTML_TAG_RE = re.compile(r"<[^>\n]*>")
 MAX_BLOCKS = 8
 MAX_FOLLOWUPS = 4
 MAX_TABLE_COLUMNS = 12
-MAX_TABLE_ROWS = 50
+MAX_TABLE_ROWS = 100
 MAX_METRICS = 8
 MAX_RANKED_ITEMS = 12
 
@@ -170,7 +170,9 @@ def deterministic_answer_from_results(question, plan, operation_results, dataset
 
     for result in ok_results:
         metrics = result.get("metrics") or {}
-        if result.get("is_filtered") and "matched_row_count" in metrics:
+        if result.get("intent") == "people_filter" and result.get("entity") == "alumni":
+            metric_items.extend(_people_filter_metric_items(result, metrics))
+        elif result.get("is_filtered") and "matched_row_count" in metrics:
             metric_items.extend(_filtered_metric_items(metrics))
         else:
             for key, value in metrics.items():
@@ -302,6 +304,21 @@ def _filtered_metric_items(metrics):
     return items
 
 
+def _people_filter_metric_items(result, metrics):
+    total_matches = result.get("total_matches", metrics.get("total_matches"))
+    displayed_count = result.get("displayed_count", metrics.get("displayed_count"))
+    answer_label = result.get("answer_label") or "Alumni matching criteria"
+    items = [
+        {"label": answer_label, "value": format_value(total_matches)},
+    ]
+    if displayed_count is not None and total_matches is not None and displayed_count != total_matches:
+        items.append({"label": "Showing", "value": format_value(displayed_count)})
+    uncertain_count = result.get("uncertain_count", metrics.get("uncertain_count"))
+    if uncertain_count:
+        items.append({"label": "Uncertain not counted", "value": format_value(uncertain_count)})
+    return items
+
+
 def _table_caption(result):
     if not result.get("is_filtered"):
         return "Computed from the full uploaded dataset."
@@ -313,6 +330,15 @@ def _table_caption(result):
         pieces.append("Searched columns: " + ", ".join(str(column) for column in search_columns))
     raw = metrics.get("raw_match_count")
     matched = metrics.get("matched_row_count")
+    if result.get("intent") == "people_filter" and result.get("entity") == "alumni":
+        total = result.get("total_matches", matched)
+        displayed = result.get("displayed_count", metrics.get("returned_row_count"))
+        if displayed is not None and total is not None and displayed < total:
+            pieces.append(f"Showing {format_value(displayed)} of {format_value(total)} matching alumni.")
+        uncertain = result.get("uncertain_count", metrics.get("uncertain_count"))
+        if uncertain:
+            pieces.append(f"{format_value(uncertain)} uncertain possible matches were not counted.")
+        return " ".join(pieces) or "Filtered from the full uploaded dataset."
     if raw is not None and matched is not None and raw != matched:
         pieces.append(f"{format_value(raw)} raw keyword hits were deduplicated to {format_value(matched)} matching rows.")
     returned = metrics.get("returned_row_count")

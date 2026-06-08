@@ -48,6 +48,136 @@ function cleanText(value) {
   if (value == null) return "";
   return String(value).replace(/<[^>\n]*>/g, "").replace(/\u0000/g, "").trim();
 }
+function normalizeColumnKey(value) {
+  return cleanText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function canonicalDisplayColumn(column) {
+  const key = normalizeColumnKey(column);
+  if (key === "firstname" || key === "givenname") return "First Name";
+  if (key === "lastname" || key === "surname" || key === "familyname") return "Last Name";
+  if (key === "occupation" || key === "jobtitle" || key === "job" || key === "role" || key === "position") return "Occupation";
+  if (key === "employer" || key === "company" || key === "organization" || key === "organisation" || key === "workplace") return "Employer";
+  if (isLinkedInColumn(column)) return "LinkedIn URL";
+  return cleanText(column);
+}
+function isLinkedInColumn(column) {
+  const key = normalizeColumnKey(column);
+  return key === "linkedin" || key === "linkedinurl" || key === "linkedinprofile" || key === "linkedinprofileurl";
+}
+function linkedInHref(value) {
+  const text = cleanText(value);
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  if (/^www\./i.test(text)) return `https://${text}`;
+  if (/linkedin\.com/i.test(text)) return `https://${text}`;
+  return "";
+}
+function isDebugColumn(column) {
+  return [
+    "matchreason",
+    "rawmatchreason",
+    "score",
+    "internalscore",
+    "matchedterms",
+    "confidence",
+    "classificationreason",
+    "uncertaintyreason",
+    "modelreason",
+    "internalreason",
+    "matchedcolumn",
+    "matchedterm",
+    "classification",
+  ].includes(normalizeColumnKey(column));
+}
+function isPeopleResult(result) {
+  return !!(result && result.intent === "people_filter" && result.entity === "alumni");
+}
+function peopleVisibleColumns(result) {
+  const columns = Array.isArray(result && result.visible_columns) && result.visible_columns.length
+    ? result.visible_columns
+    : ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"];
+  return columns.map(canonicalDisplayColumn).filter(Boolean);
+}
+function findColumn(columns, desired) {
+  const desiredKey = normalizeColumnKey(canonicalDisplayColumn(desired));
+  return columns.find(column => {
+    const key = normalizeColumnKey(column);
+    const canonicalKey = normalizeColumnKey(canonicalDisplayColumn(column));
+    return key === desiredKey || canonicalKey === desiredKey;
+  });
+}
+function sanitizeTableBlock(block, result) {
+  const debugMode = !!(cfg().debug || cfg().debugMode);
+  const columns = Array.isArray(block.columns) ? block.columns.map(cleanText).filter(Boolean).slice(0, 12) : [];
+  if (!columns.length) return null;
+  const rows = Array.isArray(block.rows) ? block.rows.slice(0, 100) : [];
+
+  if (!isPeopleResult(result)) {
+    const kept = debugMode ? columns : columns.filter(column => !isDebugColumn(column));
+    const indices = kept.map(column => columns.indexOf(column));
+    return {
+      type: "table",
+      title: cleanText(block.title || ""),
+      columns: kept,
+      rows: rows.map(row => {
+        if (Array.isArray(row)) return indices.map(i => cleanText(row[i] ?? ""));
+        if (row && typeof row === "object") return kept.map(c => cleanText(row[c] ?? ""));
+        return [cleanText(row), ...kept.slice(1).map(() => "")];
+      }),
+      caption: cleanText(block.caption || ""),
+    };
+  }
+
+  const visible = peopleVisibleColumns(result);
+  const resolved = visible.map(header => ({ header, source: findColumn(columns, header) })).filter(item => item.source);
+  if (!resolved.length) return null;
+  const indices = resolved.map(item => columns.indexOf(item.source));
+  return {
+    type: "table",
+    title: cleanText(block.title || ""),
+    columns: resolved.map(item => item.header),
+    rows: rows.map(row => {
+      if (Array.isArray(row)) return indices.map(i => cleanText(row[i] ?? ""));
+      if (row && typeof row === "object") return resolved.map(item => cleanText(row[item.source] ?? row[item.header] ?? ""));
+      return resolved.map((_, i) => i === 0 ? cleanText(row) : "");
+    }),
+    caption: cleanText(block.caption || ""),
+  };
+}
+function peopleMetricsBlock(result) {
+  if (!isPeopleResult(result)) return null;
+  const total = result.total_matches;
+  if (total == null) return null;
+  const items = [{ label: cleanText(result.answer_label || "Alumni matching criteria"), value: cleanText(total) }];
+  if (result.displayed_count != null && Number(result.displayed_count) !== Number(total)) {
+    items.push({ label: "Showing", value: cleanText(result.displayed_count) });
+  }
+  if (result.uncertain_count) {
+    items.push({ label: "Uncertain not counted", value: cleanText(result.uncertain_count) });
+  }
+  return { type: "metrics", items };
+}
+function sanitizeStructuredAnswer(answer, result) {
+  const peopleMetrics = peopleMetricsBlock(result);
+  let replacedMetrics = false;
+  const blocks = [];
+  for (const block of answer.blocks || []) {
+    if (!block || typeof block !== "object") continue;
+    if (block.type === "table") {
+      const sanitized = sanitizeTableBlock(block, result);
+      if (sanitized && sanitized.columns.length) blocks.push(sanitized);
+    } else if (block.type === "metrics" && peopleMetrics) {
+      if (!replacedMetrics) {
+        blocks.push(peopleMetrics);
+        replacedMetrics = true;
+      }
+    } else {
+      blocks.push(block);
+    }
+  }
+  if (peopleMetrics && !replacedMetrics) blocks.unshift(peopleMetrics);
+  return { ...answer, blocks };
+}
 function normalizeStructuredAnswer(answer, fallbackText) {
   let raw = answer;
   if (raw && raw.answer && typeof raw.answer === "object") raw = raw.answer;
@@ -72,14 +202,8 @@ function normalizeStructuredAnswer(answer, fallbackText) {
       const content = cleanText(block.content || "");
       if (content) normalized.blocks.push({ type: "markdown", content });
     } else if (block.type === "table") {
-      const columns = Array.isArray(block.columns) ? block.columns.map(cleanText).filter(Boolean).slice(0, 12) : [];
-      if (!columns.length) continue;
-      const rows = Array.isArray(block.rows) ? block.rows.slice(0, 20).map(row => {
-        if (Array.isArray(row)) return columns.map((_, i) => cleanText(row[i] ?? ""));
-        if (row && typeof row === "object") return columns.map(c => cleanText(row[c] ?? ""));
-        return [cleanText(row), ...columns.slice(1).map(() => "")];
-      }) : [];
-      normalized.blocks.push({ type: "table", title: cleanText(block.title || ""), columns, rows, caption: cleanText(block.caption || "") });
+      const normalizedTable = sanitizeTableBlock(block, null);
+      if (normalizedTable) normalized.blocks.push(normalizedTable);
     } else if (block.type === "metrics") {
       const items = Array.isArray(block.items) ? block.items.slice(0, 8).map(item => ({
         label: cleanText(item && item.label),
@@ -106,7 +230,7 @@ function opLabel(operation) {
   return operation.type;
 }
 function adaptAnswer(operation, result, answer, ds, answerText) {
-  const structured = normalizeStructuredAnswer(answer, answerText);
+  const structured = sanitizeStructuredAnswer(normalizeStructuredAnswer(answer, answerText), result);
   return {
     op: opLabel(operation),
     kind: "structured",
@@ -199,4 +323,17 @@ window.Alumni = {
     return Promise.resolve(null);
   },
   ask(ds, q) { return cfg().useApi ? apiAsk(ds, q) : Promise.resolve(window.ask(ds, q)).then(adaptLocalAnswer); },
+  helpers: {
+    canonicalDisplayColumn,
+    isLinkedInColumn,
+    linkedInHref,
+    isDebugColumn,
+  },
+  _test: {
+    canonicalDisplayColumn,
+    isLinkedInColumn,
+    linkedInHref,
+    isDebugColumn,
+    sanitizeStructuredAnswer,
+  },
 };

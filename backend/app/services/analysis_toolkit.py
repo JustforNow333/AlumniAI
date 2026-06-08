@@ -1,5 +1,8 @@
+import json
+import os
 import re
 import warnings
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -55,6 +58,8 @@ SEARCHABLE_COLUMN_KEYWORDS = [
 ]
 
 COLUMN_SYNONYM_GROUPS = [
+    ["first name", "firstname", "first_name", "given name"],
+    ["last name", "lastname", "last_name", "surname", "family name"],
     ["person name", "person_name", "name", "full name", "nickname", "preferred name", "alumni name"],
     ["occupation", "job", "title", "role", "position", "profession"],
     ["employer", "company", "organization", "organisation", "workplace", "firm", "business"],
@@ -62,6 +67,7 @@ COLUMN_SYNONYM_GROUPS = [
     ["name", "full name", "nickname", "preferred name", "alumni name"],
     ["major", "degree", "field of study", "program"],
     ["email", "email address", "e-mail"],
+    ["linkedin url", "linkedinurl", "linkedin_url", "linkedin", "linked in", "linked in url"],
     ["phone", "phone number", "mobile"],
     ["city", "town"],
     ["state", "province", "region"],
@@ -69,7 +75,7 @@ COLUMN_SYNONYM_GROUPS = [
 
 MATCH_REASON_COLUMN = "MATCH REASON"
 TEXT_SEARCH_METADATA_COLUMNS = ["matched_column", "matched_term", MATCH_REASON_COLUMN]
-DEFAULT_DISPLAY_SEMANTICS = ["person_name", "occupation", "employer"]
+DEFAULT_DISPLAY_SEMANTICS = ["first_name", "last_name", "person_name", "occupation", "employer", "linkedin_url"]
 DISPLAY_REQUEST_KEYWORDS = {
     "major": ["major", "majors", "degree", "degrees", "field of study"],
     "grad_year": ["graduation year", "graduation years", "class year", "class years", "grad year", "grad yr"],
@@ -78,6 +84,135 @@ DISPLAY_REQUEST_KEYWORDS = {
     "city": ["city", "cities", "location", "locations"],
     "state": ["state", "states", "province", "region"],
 }
+DISPLAY_COLUMN_ALIASES = {
+    "first_name": ["First Name", "first name", "first_name", "FirstName", "given name"],
+    "last_name": ["Last Name", "LastName", "last name", "last_name", "surname", "family name"],
+    "occupation": ["Occupation", "occupation", "job title", "title", "role", "position"],
+    "employer": ["Employer", "employer", "company", "organization", "organisation", "workplace"],
+    "linkedin_url": [
+        "LinkedIn URL",
+        "LinkedinURL",
+        "LinkedInURL",
+        "LinkedIn",
+        "Linkedin",
+        "linkedin_url",
+        "linkedin",
+    ],
+}
+
+TECH_PEOPLE_FILTER_MODE = "tech_people"
+PEOPLE_FILTER_INTENT = "people_filter"
+PEOPLE_FILTER_ENTITY = "alumni"
+PEOPLE_FILTER_CRITERIA_LABEL = "working in tech or technical roles"
+PEOPLE_FILTER_ANSWER_LABEL = "Alumni matching criteria"
+KNOWN_TECH_COMPANIES_FILE = os.path.join(os.path.dirname(__file__), "known_tech_companies.json")
+
+TECHNICAL_TITLE_PATTERNS = [
+    r"\bsoftware engineer\b",
+    r"\bsoftware developer\b",
+    r"\bdeveloper\b",
+    r"\bprogrammer\b",
+    r"\bdata scientist\b",
+    r"\bdata engineer\b",
+    r"\bmachine learning\b",
+    r"\bml engineer\b",
+    r"\bai\b",
+    r"\bartificial intelligence\b",
+    r"\bproduct manager\b",
+    r"\btechnical product manager\b",
+    r"\bengineering manager\b",
+    r"\binformation technology\b",
+    r"\bit\b",
+    r"\bcybersecurity\b",
+    r"\bcloud\b",
+    r"\bsystems engineer\b",
+    r"\bsystems administrator\b",
+    r"\bsystems analyst\b",
+    r"\bdatabase\b",
+    r"\banalytics\b",
+    r"\btechnical service\b",
+    r"\btechnical services\b",
+    r"\bplatform\b",
+    r"\binfrastructure\b",
+    r"\bsolutions engineer\b",
+    r"\bsales engineer\b",
+    r"\btechnical consultant\b",
+    r"\bsoftware architect\b",
+    r"\bdevops\b",
+    r"\bsite reliability\b",
+    r"\bsre\b",
+    r"\bcto\b",
+    r"\bchief technology officer\b",
+    r"\bcomputer scientist\b",
+    r"\bfull stack\b",
+    r"\bbackend\b",
+    r"\bfront end\b",
+    r"\bfrontend\b",
+]
+
+STRONG_TECH_EMPLOYER_TERMS = [
+    "technologies",
+    "technology",
+    "software",
+    "ai",
+    "data",
+    "cloud",
+    "systems",
+    "labs",
+    "platform",
+    "digital",
+    "analytics",
+    "cybersecurity",
+    "fintech",
+    "blockchain",
+    "crypto",
+    "saas",
+    "app",
+    "internet",
+]
+
+EMPLOYER_DESCRIPTOR_KEYWORDS = [
+    "industry",
+    "sector",
+    "company description",
+    "employer description",
+    "organization description",
+    "organisation description",
+    "business description",
+]
+
+NON_TECH_CONTEXT_TERMS = [
+    "school",
+    "middle school",
+    "high school",
+    "teacher",
+    "department chair",
+    "professor",
+    "education",
+    "hospital",
+    "medical center",
+    "healthcare",
+    "health care",
+    "oncology",
+    "clinical",
+    "surgery",
+    "physician",
+    "doctor",
+    "law",
+    "legal",
+    "real estate",
+    "insurance",
+]
+
+WEAK_AMBIGUOUS_EMPLOYER_TERMS = [
+    "venture",
+    "ventures",
+    "innovation",
+    "innovations",
+    "dao",
+    "capital",
+    "partners",
+]
 
 
 def build_dataset_context(df, metadata=None, sample_limit=5):
@@ -287,6 +422,16 @@ def _op_search_text(df, params, assumptions):
 def _op_contains_any(df, params, assumptions):
     grouped = _resolve_column_term_groups(df, params)
     if grouped:
+        if params.get("filter_mode") == TECH_PEOPLE_FILTER_MODE:
+            return _tech_people_filter_result(
+                df,
+                grouped["columns"],
+                grouped["terms"],
+                params,
+                assumptions,
+                grouped["warnings"],
+                column_term_groups=grouped["groups"],
+            )
         return _text_search_result(
             df,
             grouped["columns"],
@@ -306,6 +451,9 @@ def _op_contains_any(df, params, assumptions):
         return _error_result("contains_any", "No valid searchable columns were provided.", warnings)
     if not terms:
         return _error_result("contains_any", "At least one search term is required.")
+
+    if params.get("filter_mode") == TECH_PEOPLE_FILTER_MODE:
+        return _tech_people_filter_result(df, columns, terms, params, assumptions, warnings)
 
     return _text_search_result(
         df,
@@ -853,6 +1001,509 @@ def _text_search_result(df, columns, terms, params, operation_type, summary, ass
             "display_columns": return_columns,
         },
     )
+
+
+def _tech_people_filter_result(df, columns, terms, params, assumptions, warnings=None, column_term_groups=None):
+    warnings = list(warnings or [])
+    limit = _limit(params.get("limit"), default=DEFAULT_LIMIT)
+    display_specs = _people_display_column_specs(df, params)
+    display_headers = [spec["header"] for spec in display_specs]
+    known_companies = _known_tech_companies()
+    raw_terms = list(dict.fromkeys([str(term).strip() for term in terms if str(term).strip()] + known_companies))
+    raw_match_count = _raw_keyword_hit_count(df, columns, raw_terms)
+
+    confirmed_rows = []
+    debug_rows = []
+    seen_confirmed = set()
+    uncertain_keys = set()
+
+    for index, row in df.iterrows():
+        classification = _classify_tech_people_row(df, row, known_companies)
+        dedupe_key = _person_dedupe_key(df, row, index)
+
+        if classification.get("is_match"):
+            if dedupe_key in seen_confirmed:
+                continue
+            seen_confirmed.add(dedupe_key)
+            debug_rows.append(
+                {
+                    "row_index": int(index) if isinstance(index, (int, np.integer)) else str(index),
+                    "match_reason": classification.get("reason", ""),
+                    "classification": classification.get("classification", ""),
+                    "confidence": classification.get("confidence"),
+                }
+            )
+            if len(confirmed_rows) < limit:
+                confirmed_rows.append(
+                    {
+                        spec["header"]: _row_value_for_display(row, spec["source"])
+                        for spec in display_specs
+                    }
+                )
+            continue
+
+        if classification.get("is_uncertain") and dedupe_key not in seen_confirmed:
+            uncertain_keys.add(dedupe_key)
+
+    total_matches = len(seen_confirmed)
+    displayed_count = len(confirmed_rows)
+    uncertain_count = len(uncertain_keys - seen_confirmed)
+
+    if displayed_count < total_matches:
+        warnings.append(
+            _warning(
+                "display_limit_applied",
+                f"Showing {displayed_count} of {total_matches} matching alumni because the display limit is {limit}.",
+                resolved_to={
+                    "display_limit": limit,
+                    "total_matches": total_matches,
+                    "displayed_count": displayed_count,
+                },
+            )
+        )
+
+    metrics = {
+        "total_dataset_rows": int(df.shape[0]),
+        "total_keyword_hits": raw_match_count,
+        "total_matches": total_matches,
+        "displayed_count": displayed_count,
+        "display_limit": limit,
+        "uncertain_count": uncertain_count,
+        "total_rows": int(df.shape[0]),
+        "raw_match_count": raw_match_count,
+        "matched_row_count": total_matches,
+        "returned_row_count": displayed_count,
+        "deduplicated": True,
+        "search_columns": columns,
+        "display_columns": display_headers,
+        "search_terms": raw_terms,
+        # Backward-compatible aliases for older frontend/tests.
+        "rows_matched": total_matches,
+        "rows_returned": displayed_count,
+        "searched_columns": columns,
+    }
+    extras = {
+        "intent": PEOPLE_FILTER_INTENT,
+        "entity": PEOPLE_FILTER_ENTITY,
+        "criteria_label": PEOPLE_FILTER_CRITERIA_LABEL,
+        "answer_label": PEOPLE_FILTER_ANSWER_LABEL,
+        "total_dataset_rows": int(df.shape[0]),
+        "total_keyword_hits": raw_match_count,
+        "total_matches": total_matches,
+        "displayed_count": displayed_count,
+        "display_limit": limit,
+        "uncertain_count": uncertain_count,
+        "visible_columns": display_headers,
+        "search_columns": columns,
+        "display_columns": display_headers,
+        "debug": {"rows": debug_rows},
+    }
+    return _ok_result(
+        "contains_any",
+        f"{PEOPLE_FILTER_ANSWER_LABEL}: {total_matches}",
+        display_headers,
+        confirmed_rows,
+        metrics,
+        assumptions,
+        warnings,
+        is_filtered=True,
+        extras=extras,
+    )
+
+
+def _people_display_column_specs(df, params):
+    first = _resolved_display_column(df, "first_name")
+    last = _resolved_display_column(df, "last_name")
+    occupation = _resolved_display_column(df, "occupation")
+    employer = _resolved_display_column(df, "employer")
+    linkedin = _resolved_display_column(df, "linkedin_url")
+
+    specs = []
+    if first:
+        specs.append({"header": "First Name", "source": first})
+    if last:
+        specs.append({"header": "Last Name", "source": last})
+    if not first and not last:
+        fallback_name = _resolved_display_column(df, "person_name") or _resolved_display_column(df, "name")
+        if fallback_name:
+            specs.append({"header": str(fallback_name), "source": fallback_name})
+    if occupation:
+        specs.append({"header": "Occupation", "source": occupation})
+    if employer:
+        specs.append({"header": "Employer", "source": employer})
+
+    requested = params.get("display_columns") or params.get("return_columns")
+    requested_columns, _warnings = _resolve_columns(df, requested, required=False)
+    debug_sources = set(_debug_columns())
+    existing_sources = {spec["source"] for spec in specs}
+    linkedin_source = linkedin
+    for column in requested_columns:
+        if column in existing_sources or column == linkedin_source or _is_debug_column(column):
+            continue
+        header = _canonical_display_header(column)
+        if _normalize_compact(header) in debug_sources:
+            continue
+        specs.append({"header": header, "source": column})
+        existing_sources.add(column)
+
+    if linkedin:
+        specs = [spec for spec in specs if spec["source"] != linkedin]
+        specs.append({"header": "LinkedIn URL", "source": linkedin})
+
+    return specs
+
+
+def _resolved_display_column(df, semantic):
+    if semantic in DISPLAY_COLUMN_ALIASES:
+        column = _resolve_column_by_aliases(df, DISPLAY_COLUMN_ALIASES[semantic])
+        if column:
+            return column
+        if semantic in {"first_name", "last_name", "linkedin_url"}:
+            return None
+    column, _warnings = _resolve_column(df, semantic)
+    return column
+
+
+def _resolve_column_by_aliases(df, aliases):
+    for alias in aliases:
+        alias_text = str(alias).strip()
+        if alias_text in df.columns:
+            return alias_text
+    for alias in aliases:
+        alias_text = str(alias).strip()
+        for column in df.columns:
+            if alias_text.casefold() == str(column).casefold():
+                return str(column)
+    normalized_aliases = {_normalize_compact(alias) for alias in aliases if _normalize_compact(alias)}
+    for column in df.columns:
+        if _normalize_compact(column) in normalized_aliases:
+            return str(column)
+    return None
+
+
+def _canonical_display_header(column):
+    normalized = _normalize_compact(column)
+    if normalized in {"firstname", "givenname"}:
+        return "First Name"
+    if normalized in {"lastname", "surname", "familyname"}:
+        return "Last Name"
+    if normalized in {"linkedinurl", "linkedin", "linkedinprofile", "linkedinprofileurl"}:
+        return "LinkedIn URL"
+    if normalized in {"occupation", "jobtitle", "job", "role", "position"}:
+        return "Occupation"
+    if normalized in {"employer", "company", "organization", "organisation", "workplace"}:
+        return "Employer"
+    return str(column)
+
+
+def _row_value_for_display(row, column):
+    if not column or column not in row.index:
+        return ""
+    value = row[column]
+    if _is_missing_value(value):
+        return ""
+    return value
+
+
+def _classify_tech_people_row(df, row, known_companies):
+    occupation_col = _resolved_display_column(df, "occupation")
+    employer_col = _resolved_display_column(df, "employer")
+    occupation = _safe_row_text(row, occupation_col)
+    employer = _safe_row_text(row, employer_col)
+
+    if is_explicit_technical_title(occupation):
+        return {
+            "is_match": True,
+            "is_uncertain": False,
+            "classification": "technical_title",
+            "confidence": 1.0,
+            "reason": f"Explicit technical title: {occupation}",
+        }
+
+    employer_classification = _classify_tech_employer(df, row, employer, known_companies, occupation=occupation)
+    if employer_classification.get("is_tech_company"):
+        return {
+            "is_match": True,
+            "is_uncertain": False,
+            "classification": employer_classification.get("classification", "tech_company"),
+            "confidence": employer_classification.get("confidence", 0.9),
+            "reason": employer_classification.get("reason", ""),
+        }
+
+    if employer_classification.get("classification") == "uncertain":
+        return {
+            "is_match": False,
+            "is_uncertain": True,
+            "classification": "uncertain",
+            "confidence": employer_classification.get("confidence", 0.5),
+            "reason": employer_classification.get("reason", ""),
+        }
+
+    return {
+        "is_match": False,
+        "is_uncertain": False,
+        "classification": "non_tech_company",
+        "confidence": employer_classification.get("confidence", 0.0),
+        "reason": employer_classification.get("reason", ""),
+    }
+
+
+def _classify_tech_employer(df, row, employer, known_companies, occupation=""):
+    employer_text = str(employer or "")
+    descriptor_text = " ".join(_employer_descriptor_values(df, row))
+    combined_context = " ".join(item for item in [employer_text, descriptor_text] if item).strip()
+
+    status = classify_employer_tech_status(
+        employer_text,
+        occupation=occupation,
+        known_companies=known_companies,
+        descriptor_text=descriptor_text,
+    )
+    classification = {
+        "confirmed_tech": "tech_company",
+        "confirmed_non_tech": "non_tech_company",
+        "uncertain": "uncertain",
+    }[status["status"]]
+    return {
+        "is_tech_company": status["status"] == "confirmed_tech",
+        "confidence": status["confidence"],
+        "classification": classification if status["source"] != "known_company" else "known_tech_company",
+        "reason": status["internal_reason"],
+    }
+
+
+def is_explicit_technical_title(occupation):
+    return _is_explicit_technical_title(occupation)
+
+
+def classify_employer_tech_status(employer, occupation="", known_companies=None, descriptor_text=""):
+    known_companies = list(known_companies or _known_tech_companies())
+    employer_text = str(employer or "")
+    descriptor_text = str(descriptor_text or "")
+    combined_context = " ".join(item for item in [employer_text, descriptor_text] if item).strip()
+
+    known_match = _known_company_match(employer_text, known_companies)
+    if known_match:
+        return _tech_classification(
+            "confirmed_tech",
+            "known_company",
+            0.95,
+            f"Employer matches known tech company list: {known_match}",
+        )
+
+    strong_match = _matched_term(employer_text, STRONG_TECH_EMPLOYER_TERMS)
+    if strong_match:
+        return _tech_classification(
+            "confirmed_tech",
+            "strong_keyword",
+            0.9,
+            f"Employer name contains strong tech indicator: {strong_match}",
+        )
+
+    descriptor_match = _matched_term(descriptor_text, STRONG_TECH_EMPLOYER_TERMS)
+    if descriptor_match and not is_strong_non_tech_context(occupation, combined_context):
+        return _tech_classification(
+            "confirmed_tech",
+            "strong_keyword",
+            0.82,
+            f"Employer descriptor contains strong tech indicator: {descriptor_match}",
+        )
+
+    if is_strong_non_tech_context(occupation, combined_context):
+        return _tech_classification(
+            "confirmed_non_tech",
+            "non_tech_exclusion",
+            0.9,
+            "Employer or role context strongly indicates a non-tech domain.",
+        )
+
+    weak_match = _matched_term(employer_text, WEAK_AMBIGUOUS_EMPLOYER_TERMS)
+    if weak_match:
+        return _tech_classification(
+            "uncertain",
+            "none",
+            0.45,
+            f"Employer has ambiguous startup/company wording: {weak_match}",
+        )
+
+    return _tech_classification(
+        "confirmed_non_tech",
+        "none",
+        0.0,
+        "No strong technical title or tech-company signal was found.",
+    )
+
+
+def is_strong_non_tech_context(occupation, employer):
+    if is_explicit_technical_title(occupation):
+        return False
+    return _contains_word_or_phrase(" ".join([str(occupation or ""), str(employer or "")]), NON_TECH_CONTEXT_TERMS)
+
+
+def _tech_classification(status, source, confidence, internal_reason):
+    return {
+        "status": status,
+        "source": source,
+        "confidence": float(confidence),
+        "internal_reason": internal_reason,
+    }
+
+
+def _is_explicit_technical_title(value):
+    normalized = _normalize_name(value)
+    if not normalized:
+        return False
+    for pattern in TECHNICAL_TITLE_PATTERNS:
+        if re.search(pattern, normalized, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _employer_descriptor_values(df, row):
+    values = []
+    for column in df.columns:
+        column_norm = _normalize_name(column)
+        if any(keyword in column_norm for keyword in EMPLOYER_DESCRIPTOR_KEYWORDS):
+            text = _safe_row_text(row, column)
+            if text:
+                values.append(text)
+    return values
+
+
+def _raw_keyword_hit_count(df, columns, terms):
+    if not columns or not terms:
+        return 0
+    hit_count = 0
+    valid_columns = [column for column in columns if column in df.columns]
+    for _, row in df[valid_columns].iterrows():
+        for term in terms:
+            for column in valid_columns:
+                if _text_has_term(row[column], term):
+                    hit_count += 1
+                    break
+    return hit_count
+
+
+def _matched_term(text, terms):
+    for term in terms:
+        if _text_has_term(text, term):
+            return term
+    return ""
+
+
+def _text_has_term(text, term):
+    normalized_text = _normalize_name(text)
+    normalized_term = _normalize_name(term)
+    if not normalized_text or not normalized_term:
+        return False
+    if " " in normalized_term:
+        return normalized_term in normalized_text
+    return re.search(rf"\b{re.escape(normalized_term)}\b", normalized_text) is not None
+
+
+def _known_company_match(employer, known_companies):
+    employer_norm = _normalize_company_name(employer)
+    if not employer_norm:
+        return ""
+    for company in known_companies:
+        company_norm = _normalize_company_name(company)
+        if not company_norm:
+            continue
+        if company_norm == employer_norm or re.search(rf"\b{re.escape(company_norm)}\b", employer_norm):
+            return company
+    return ""
+
+
+def _normalize_company_name(value):
+    normalized = _normalize_name(value)
+    suffixes = {
+        "inc",
+        "incorporated",
+        "llc",
+        "l l c",
+        "ltd",
+        "limited",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+    }
+    words = [word for word in normalized.split() if word not in suffixes]
+    return " ".join(words)
+
+
+@lru_cache(maxsize=1)
+def _known_tech_companies():
+    try:
+        with open(KNOWN_TECH_COMPANIES_FILE, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        loaded = []
+    if not isinstance(loaded, list):
+        return []
+    return [str(item).strip() for item in loaded if str(item).strip()]
+
+
+def _person_dedupe_key(df, row, index):
+    stable_columns = [
+        "Cornell ID",
+        "Constituent ID",
+        "Alumni ID",
+        "NetID",
+        "Net ID",
+        "Email",
+        "Email Address",
+    ]
+    for requested in stable_columns:
+        column, _warnings = _resolve_column(df, requested)
+        value = _safe_row_text(row, column)
+        if value:
+            return ("stable", _normalize_compact(value))
+
+    first = _safe_row_text(row, _resolved_display_column(df, "first_name"))
+    last = _safe_row_text(row, _resolved_display_column(df, "last_name"))
+    grad_year = _safe_row_text(row, _resolved_display_column(df, "grad_year"))
+    employer = _safe_row_text(row, _resolved_display_column(df, "employer"))
+    if first and last and grad_year:
+        return ("name_grad", _normalize_compact(first), _normalize_compact(last), _normalize_compact(grad_year))
+    if first and last and employer:
+        return ("name_employer", _normalize_compact(first), _normalize_compact(last), _normalize_compact(employer))
+
+    person_name = _safe_row_text(row, _resolved_display_column(df, "person_name"))
+    if person_name and employer:
+        return ("person_employer", _normalize_compact(person_name), _normalize_compact(employer))
+    if person_name:
+        return ("person", _normalize_compact(person_name), str(index))
+    return ("row", str(index))
+
+
+def _safe_row_text(row, column):
+    if not column or column not in row.index:
+        return ""
+    value = row[column]
+    if _is_missing_value(value):
+        return ""
+    return str(value).strip()
+
+
+def _debug_columns():
+    return {
+        "matchreason",
+        "rawmatchreason",
+        "score",
+        "internalscore",
+        "matchedterms",
+        "confidence",
+        "classificationreason",
+        "uncertaintyreason",
+        "modelreason",
+        "matchedcolumn",
+        "matchedterm",
+    }
+
+
+def _is_debug_column(column):
+    return _normalize_compact(column) in _debug_columns()
 
 
 def _ok_result(operation_type, summary, columns, rows, metrics=None, assumptions=None, warnings=None, is_filtered=False, extras=None):
