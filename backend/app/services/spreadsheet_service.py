@@ -1,37 +1,7 @@
-from datetime import date, datetime, timezone
-from pathlib import Path
-from uuid import uuid4
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
-
-
-DATASETS = {}
-
-
-class SpreadsheetError(ValueError):
-    pass
-
-
-def read_spreadsheet(file_path):
-    extension = Path(file_path).suffix.lower()
-
-    try:
-        if extension == ".csv":
-            df = pd.read_csv(file_path)
-        elif extension == ".xlsx":
-            df = pd.read_excel(file_path, engine="openpyxl")
-        else:
-            raise SpreadsheetError("Unsupported file type. Please upload a .csv or .xlsx file.")
-    except pd.errors.EmptyDataError as exc:
-        raise SpreadsheetError("Spreadsheet is empty or has no readable columns.") from exc
-    except Exception as exc:
-        raise SpreadsheetError(f"Could not read spreadsheet: {exc}") from exc
-
-    if df.shape[1] == 0:
-        raise SpreadsheetError("Spreadsheet has no readable columns.")
-
-    return clean_dataframe(df)
 
 
 def clean_dataframe(df):
@@ -76,25 +46,6 @@ def _infer_obvious_datetime_columns(df):
             df[column] = parsed
 
     return df
-
-
-def store_dataset(original_filename, saved_file_path, df):
-    dataset_id = str(uuid4())
-    metadata = create_basic_summary(df, include_preview=False)
-
-    DATASETS[dataset_id] = {
-        "original_filename": original_filename,
-        "saved_file_path": saved_file_path,
-        "dataframe": df,
-        "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        "metadata": metadata,
-    }
-
-    return dataset_id
-
-
-def get_dataset(dataset_id):
-    return DATASETS.get(dataset_id)
 
 
 def create_basic_summary(df, include_preview=True):

@@ -7,8 +7,7 @@ import pytest
 
 from app import create_app
 from app.services import ai_service
-from app.services.dataset_store import clear_dataset_cache, load_dataset_registry
-from app.services.spreadsheet_service import DATASETS
+from app.services.dataset_store import load_dataset_registry
 
 
 @pytest.fixture
@@ -29,7 +28,6 @@ def sample_df():
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setattr(ai_service, "client", None)
-    DATASETS.clear()
 
     app = create_app()
     app.config.update(
@@ -40,8 +38,6 @@ def app(tmp_path, monkeypatch):
     )
 
     yield app
-
-    DATASETS.clear()
 
 
 @pytest.fixture
@@ -228,7 +224,6 @@ def test_preview_uploaded_xlsx(client, sample_df):
 
 def test_dataset_survives_simulated_restart(client, app, sample_df):
     dataset_id, _ = upload_dataframe(client, sample_df, "restart.xlsx")
-    clear_dataset_cache()
 
     with app.app_context():
         registry = load_dataset_registry()
@@ -496,7 +491,6 @@ def test_dataset_isolation_after_persistence(client):
     )
     first_id, first_upload = upload_dataframe(client, first_df, "first-persisted.xlsx")
     second_id, second_upload = upload_dataframe(client, second_df, "second-persisted.xlsx")
-    clear_dataset_cache()
 
     assert first_id != second_id
     assert first_upload["metadata"]["stored_filename"] != second_upload["metadata"]["stored_filename"]

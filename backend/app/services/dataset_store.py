@@ -231,24 +231,6 @@ def load_dataset_dataframe(dataset_id):
     return df, metadata
 
 
-def delete_dataset(dataset_id):
-    registry = load_dataset_registry()
-    metadata = registry.pop(str(dataset_id), None)
-    if metadata is None:
-        return False
-
-    file_path = _resolve_dataset_file_path(metadata.get("file_path"))
-    file_path.unlink(missing_ok=True)
-    save_dataset_registry(registry)
-    return True
-
-
-def clear_dataset_cache():
-    from app.services.spreadsheet_service import DATASETS
-
-    DATASETS.clear()
-
-
 def _resolve_dataset_file_path(file_path):
     path = Path(str(file_path or ""))
     if path.is_absolute():

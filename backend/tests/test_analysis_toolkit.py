@@ -308,6 +308,62 @@ def test_text_search_counts_raw_keyword_hits_unique_rows_and_limit():
     assert any(warning["type"] == "display_limit_applied" for warning in result["warnings"])
 
 
+def test_contains_all_with_groups_requires_every_distinct_term():
+    df = pd.DataFrame(
+        {
+            "OCCUPATION": ["Software Engineer", "Cloud Architect", "Teacher"],
+            "EMPLOYER": ["Software Inc", "Cloud Software Co", "School"],
+        }
+    )
+
+    # Row 0 matches "software" in both groups but never matches "cloud",
+    # so it must not count as matching all terms. Row 1 matches both terms.
+    result = execute_operation(
+        df,
+        {
+            "type": "contains_all",
+            "params": {
+                "column_term_groups": [
+                    {"columns": ["OCCUPATION"], "terms": ["software", "cloud"]},
+                    {"columns": ["EMPLOYER"], "terms": ["software", "cloud"]},
+                ],
+            },
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["matched_row_count"] == 1
+    assert result["rows"][0][0] == "Cloud Architect"
+
+
+def test_contains_all_with_shared_term_across_groups_still_matches():
+    df = pd.DataFrame(
+        {
+            "OCCUPATION": ["Software Engineer", "Teacher"],
+            "EMPLOYER": ["Software Inc", "School"],
+        }
+    )
+
+    # The single required term matches in both groups; the duplicate group
+    # hits must not prevent the row from counting as a match.
+    result = execute_operation(
+        df,
+        {
+            "type": "contains_all",
+            "params": {
+                "column_term_groups": [
+                    {"columns": ["OCCUPATION"], "terms": ["software"]},
+                    {"columns": ["EMPLOYER"], "terms": ["software"]},
+                ],
+            },
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["matched_row_count"] == 1
+    assert result["rows"][0][0] == "Software Engineer"
+
+
 def test_tech_people_filter_uses_clean_person_columns_counts_and_strict_matching():
     df = pd.DataFrame(
         {

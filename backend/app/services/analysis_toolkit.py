@@ -923,7 +923,13 @@ def _text_search_result(df, columns, terms, params, operation_type, summary, ass
                 if term_column:
                     row_matches.append((term_column, original_term, term_value))
 
-        is_match = len(row_matches) == len(terms) if require_all else bool(row_matches)
+        # The same term can match in multiple groups, so compare distinct matched
+        # terms (not raw match count) against the distinct required terms.
+        if require_all:
+            matched_term_names = set(match[1] for match in row_matches)
+            is_match = matched_term_names == set(terms)
+        else:
+            is_match = bool(row_matches)
         if is_match:
             matched_columns.append(", ".join(dict.fromkeys(match[0] for match in row_matches)))
             matched_terms.append(", ".join(dict.fromkeys(match[1] for match in row_matches)))

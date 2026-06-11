@@ -5,13 +5,11 @@ import pytest
 
 from app import create_app
 from app.services import ai_service
-from app.services.spreadsheet_service import DATASETS
 
 
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setattr(ai_service, "client", None)
-    DATASETS.clear()
 
     app = create_app()
     app.config.update(
@@ -22,8 +20,6 @@ def app(tmp_path, monkeypatch):
     )
 
     yield app
-
-    DATASETS.clear()
 
 
 @pytest.fixture

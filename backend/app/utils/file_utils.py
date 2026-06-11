@@ -1,7 +1,4 @@
 from pathlib import Path
-from uuid import uuid4
-
-from werkzeug.utils import secure_filename
 
 
 ALLOWED_EXTENSIONS = {".csv", ".xlsx"}
@@ -26,16 +23,3 @@ def is_empty_upload(uploaded_file):
         return size == 0
     except (AttributeError, OSError):
         return uploaded_file.content_length == 0
-
-
-def save_uploaded_file(uploaded_file, upload_folder):
-    Path(upload_folder).mkdir(parents=True, exist_ok=True)
-
-    original_name = secure_filename(uploaded_file.filename)
-    extension = Path(original_name).suffix.lower()
-    stem = Path(original_name).stem or "upload"
-    unique_filename = f"{uuid4()}_{stem}{extension}"
-    saved_path = Path(upload_folder) / unique_filename
-
-    uploaded_file.save(saved_path)
-    return str(saved_path)
