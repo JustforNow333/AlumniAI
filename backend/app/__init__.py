@@ -6,6 +6,7 @@ from flask_cors import CORS
 
 from app.routes.chat_routes import chat_bp
 from app.routes.dataset_routes import dataset_bp
+from app.routes.insight_routes import insight_bp
 from app.routes.upload_routes import upload_bp
 from app.utils.file_utils import ensure_upload_folder
 
@@ -45,6 +46,7 @@ def create_app():
 
     app.register_blueprint(upload_bp)
     app.register_blueprint(dataset_bp)
+    app.register_blueprint(insight_bp)
     app.register_blueprint(chat_bp)
 
     @app.get("/api/health")

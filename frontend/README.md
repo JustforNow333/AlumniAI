@@ -6,11 +6,11 @@ just open `index.html`, or serve the folder.
 ## Files
 - `index.html` — entry point + backend config block
 - `theme.css` — design tokens (light/dark) + all styles
-- `kit.jsx` — icons, brand, shared UI bits
+- `kit.jsx` — icons, brand, and shared type pills
 - `engine.jsx` — local CSV parse/profile/analysis (demo mode only)
 - `sample-data.jsx` — the demo dataset
 - `api.jsx` — talks to the Flask backend + maps responses to the UI
-- `app.jsx` — the app (upload, workspace, chat, result renderers)
+- `app.jsx` — the app (upload, workspace, chat, structured answer renderers)
 
 ## Run connected to Flask (default)
 Start the backend:
@@ -67,5 +67,5 @@ node --test frontend/tests/api-preview.test.mjs
 ## Going to production
 Drop the Babel CDN + in-browser transform by moving the `.jsx` into a Vite/CRA
 project (`npm i react react-dom`, import components normally). `engine.jsx` and
-`sample-data.jsx` is only used by the explicit sample dataset action before a real
+`sample-data.jsx` are only used by explicit non-API demo mode before a real
 upload.

@@ -437,3 +437,392 @@ def test_presenter_answer_keeps_backend_assumptions(client, monkeypatch):
     rendered = " ".join(str(block) for block in answer["blocks"])
     assert "Tech-related alumni are identified" in rendered
     assert "occupation -> OCCUPATION" in rendered
+
+
+def test_consulting_query_uses_taxonomy_without_plan_error(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Pat", "Ada", "Sam", "Lee"],
+            "Last Name": ["Partner", "Lovelace", "Strategy", "Analyst"],
+            "Occupation": ["Partner", "Software Engineer", "Strategy Consultant", "Analyst"],
+            "Employer": ["McKinsey", "Google", "Family Business", "Local Bakery"],
+            "LinkedIn URL": ["linkedin.com/in/pat", "", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "consulting.csv")
+
+    data = ask(client, dataset_id, "Which alumni work in consulting?")
+
+    answer = assert_valid_answer(data)
+    result = data["result"]
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert answer.get("title") != "Analysis Plan Error"
+    assert "could not create a valid analysis plan" not in rendered.lower()
+    assert data["operation"]["params"]["filter_mode"] == "people"
+    assert result["intent"] == "people_filter"
+    assert result["filter_type"] == "industry"
+    assert result["industry"] == "consulting"
+    assert result["total_matches"] == 2
+    assert result["visible_columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    first_names = {row["First Name"] for row in result["rows"]}
+    assert first_names == {"Pat", "Sam"}
+
+
+def consulting_precision_df():
+    return pd.DataFrame(
+        {
+            "First Name": ["Riley", "Kim", "Pat", "Ind", "Tess", "Hank", "Sofi", "Zoe", "Mona", "Ann", "Jud", "Ivan", "Pri"],
+            "Last Name": [
+                "Risk", "Consult", "Advisory", "Solo", "Tech",
+                "Hershey", "Spotify", "Zoom", "Morgan", "Attorney", "Clerk", "Banker", "Equity",
+            ],
+            "Occupation": [
+                "Senior Manager, Risk Consulting",
+                "Management Consultant",
+                "Transaction Advisory",
+                "Independent Consultant",
+                "Technology Consultant",
+                "Head of Strategy",
+                "Director, Premium Subscription Strategy",
+                "Director, Product Strategy & Operations",
+                "Product Manager",
+                "Attorney",
+                "Judicial Law Clerk",
+                "Investment Banking Analyst",
+                "Private Equity Associate",
+            ],
+            "Employer": [
+                "EY",
+                "KPMG",
+                "Deloitte",
+                "",
+                "Acme Corp",
+                "Hershey",
+                "Spotify",
+                "ZoomInfo",
+                "Morgan Stanley",
+                "Smith Law",
+                "District Court",
+                "Goldman Sachs",
+                "Blackstone",
+            ],
+            "LinkedIn URL": ["linkedin.com/in/riley"] + [""] * 12,
+        }
+    )
+
+
+def test_consulting_query_counts_direct_matches_only_not_keyword_hits(client):
+    dataset_id = upload_dataframe(client, consulting_precision_df(), "consulting-precision.csv")
+
+    data = ask(client, dataset_id, "What alumni work in consulting?")
+
+    answer = assert_valid_answer(data)
+    result = data["result"]
+    assert data["operation"]["params"]["filter_mode"] == "people"
+    assert result["industry"] == "consulting"
+    # Only the five real consulting/advisory rows count.
+    assert result["total_matches"] == 5
+    first_names = {row["First Name"] for row in result["rows"]}
+    assert first_names == {"Riley", "Kim", "Pat", "Ind", "Tess"}
+    # Strategy/product/finance/legal rows matched broad keywords but are excluded.
+    for excluded in ["Hank", "Sofi", "Zoe", "Mona", "Ann", "Jud", "Ivan", "Pri"]:
+        assert excluded not in first_names
+    # Broad retrieval found more candidates than direct matches.
+    assert result["raw_candidate_count"] > result["total_matches"]
+    assert result["direct_match_count"] == 5
+    assert result["adjacent_count"] >= 4
+    assert result["classification_version"] == "multi_label_v1"
+    # Adjacent/non-match counts stay out of the headline count.
+    assert result["total_matches"] == result["direct_match_count"]
+    assert result["visible_columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    assert result["rows"][0]["LinkedIn URL"] == "linkedin.com/in/riley"
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert "adjacent rows matched broad keywords but were not counted" in rendered
+    assert "internal_reason" not in rendered
+
+
+def test_consulting_or_strategy_query_includes_internal_strategy_roles(client):
+    dataset_id = upload_dataframe(client, consulting_precision_df(), "consulting-or-strategy.csv")
+
+    data = ask(client, dataset_id, "What alumni work in consulting or strategy?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    first_names = {row["First Name"] for row in result["rows"]}
+    # Direct consulting plus internal strategy roles.
+    assert {"Riley", "Kim", "Pat", "Ind", "Tess", "Hank", "Sofi"}.issubset(first_names)
+    # Legal and pure finance rows still excluded.
+    assert "Ann" not in first_names
+    assert "Ivan" not in first_names
+
+
+def test_consulting_adjacent_query_includes_adjacent_rows(client):
+    dataset_id = upload_dataframe(client, consulting_precision_df(), "consulting-adjacent.csv")
+
+    data = ask(client, dataset_id, "Show consulting-adjacent alumni too")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    first_names = {row["First Name"] for row in result["rows"]}
+    # Adjacent strategy/product rows are now included and reported separately.
+    assert {"Hank", "Sofi", "Zoe"}.issubset(first_names)
+    assert result["adjacent_included_count"] >= 3
+    assert result["adjacent_included"] is True
+    # Clear non-matches stay out even in adjacent mode.
+    assert "Ann" not in first_names
+    assert "Jud" not in first_names
+
+
+def test_finance_query_returns_finance_roles_even_if_not_consulting(client):
+    dataset_id = upload_dataframe(client, consulting_precision_df(), "finance-roles.csv")
+
+    data = ask(client, dataset_id, "What alumni work in finance?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["industry"] == "finance"
+    first_names = {row["First Name"] for row in result["rows"]}
+    assert {"Ivan", "Pri", "Mona"}.issubset(first_names)
+    assert "Ann" not in first_names
+
+
+def test_finance_consulting_query_returns_only_the_intersection(client):
+    dataset_id = upload_dataframe(client, consulting_precision_df(), "finance-consulting.csv")
+
+    data = ask(client, dataset_id, "Who works in finance consulting?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["industry"] == "consulting"
+    first_names = {row["First Name"] for row in result["rows"]}
+    # Consulting rows with finance context (risk consulting, transaction advisory,
+    # Big Four professional services) count; pure finance does not.
+    assert "Riley" in first_names
+    assert "Pat" in first_names
+    assert "Ivan" not in first_names
+    assert "Pri" not in first_names
+    assert "Mona" not in first_names
+
+
+def test_confident_model_keyword_plan_for_consulting_still_uses_strict_classifier(client, monkeypatch):
+    """Even when the intent model confidently returns a broad keyword search,
+    a people/industry question must run through the strict classifier so raw
+    keyword hits are not presented as final matches."""
+
+    class FakeResponses:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return type(
+                    "FakeResponse",
+                    (),
+                    {
+                        "output_text": '{"intent":"find_records","target_entity":"rows","user_goal":"What alumni work in consulting?","concepts":[{"name":"consulting_related","definition":"Consulting-related people.","search_terms":["consultant","consulting","strategy","management","operations","advisory","transaction"],"known_entities":["McKinsey","Deloitte"]}],"semantic_columns":{"occupation":["occupation"],"employer":["employer"]},"filters":[{"concept":"consulting_related","apply_to_semantic_columns":["occupation","employer"],"match_mode":"contains_any"}],"sort":null,"aggregation":null,"desired_output":{"format":"table","semantic_columns":["first_name","last_name","occupation","employer"],"limit":100},"assumptions":[],"clarification_needed":false,"clarifying_question":null}'
+                    },
+                )()
+            return type("FakeResponse", (), {"output_text": "not presenter json"})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(ai_service, "client", FakeClient())
+    dataset_id = upload_dataframe(client, consulting_precision_df(), "model-keyword-consulting.csv")
+
+    data = ask(client, dataset_id, "What alumni work in consulting?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert data["operation"]["params"]["filter_mode"] == "people"
+    assert result["intent"] == "people_filter"
+    assert result["industry"] == "consulting"
+    assert result["total_matches"] == 5
+    first_names = {row["First Name"] for row in result["rows"]}
+    assert first_names == {"Riley", "Kim", "Pat", "Ind", "Tess"}
+
+
+def test_investment_banking_query_excludes_generic_analyst(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Gail", "Lee", "Mia"],
+            "Last Name": ["Golden", "Analyst", "Merger"],
+            "Occupation": ["Analyst", "Analyst", "M&A Associate"],
+            "Employer": ["Goldman Sachs", "Community Food Pantry", "Evercore"],
+            "LinkedIn URL": ["", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "banking.csv")
+
+    data = ask(client, dataset_id, "Which alumni work in investment banking?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["industry"] == "banking"
+    assert result["total_matches"] == 2
+    assert {row["First Name"] for row in result["rows"]} == {"Gail", "Mia"}
+
+
+def test_employer_query_uses_employer_filter_not_industry(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Neil", "Ada", "Sam"],
+            "Last Name": ["Wusu", "Lovelace", "Stream"],
+            "Occupation": ["Head of Growth", "Software Engineer", "Recruiter"],
+            "Employer": ["Spotify", "Google", "Spotify"],
+            "LinkedIn URL": ["linkedin.com/in/neil", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "employer.csv")
+
+    data = ask(client, dataset_id, "Who works at Spotify?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["intent"] == "people_filter"
+    assert result["filter_type"] == "employer"
+    assert result["industry"] is None
+    # All Spotify rows are returned regardless of occupation.
+    assert result["total_matches"] == 2
+    assert {row["First Name"] for row in result["rows"]} == {"Neil", "Sam"}
+
+
+def test_founders_query_uses_occupation_filter_regardless_of_industry(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Bo", "Fi", "Ada"],
+            "Last Name": ["Baker", "Founder", "Lovelace"],
+            "Occupation": ["Founder", "Co-Founder", "Software Engineer"],
+            "Employer": ["Local Bakery", "FanAmp", "Google"],
+            "LinkedIn URL": ["", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "founders.csv")
+
+    data = ask(client, dataset_id, "Who are founders?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["filter_type"] == "occupation"
+    assert result["total_matches"] == 2
+    assert {row["First Name"] for row in result["rows"]} == {"Bo", "Fi"}
+
+
+def test_startup_founders_query_requires_startup_like_employer(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Bo", "Fi"],
+            "Last Name": ["Baker", "Founder"],
+            "Occupation": ["Founder", "Founder"],
+            "Employer": ["Local Bakery", "FanAmp"],
+            "LinkedIn URL": ["", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "startup-founders.csv")
+
+    data = ask(client, dataset_id, "Which alumni are startup founders?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["filter_type"] == "industry"
+    assert result["industry"] == "startups"
+    assert result["total_matches"] == 1
+    assert result["rows"][0]["First Name"] == "Fi"
+
+
+def test_neil_wusu_at_spotify_is_included_in_tech_query(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Neil", "Marie", "Bo"],
+            "LastName": ["Wusu", "Curie", "Baker"],
+            "Occupation": ["Head of Growth", "Director of Hematologic Oncology", "Founder"],
+            "Employer": ["Spotify", "Holy Name Medical Center", "Local Bakery"],
+            "LinkedinURL": ["https://linkedin.com/in/neilwusu", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "neil.csv")
+
+    data = ask(client, dataset_id, "Which alumni are in tech?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["total_matches"] == 1
+    row = result["rows"][0]
+    assert row["First Name"] == "Neil"
+    assert row["Last Name"] == "Wusu"
+    assert row["LinkedIn URL"] == "https://linkedin.com/in/neilwusu"
+
+
+def test_healthcare_query_includes_hospital_rows_excluded_from_tech(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Marie", "Bob", "Ada"],
+            "Last Name": ["Curie", "Hopper", "Lovelace"],
+            "Occupation": ["Director of Hematologic Oncology", "Data Scientist", "Founder"],
+            "Employer": ["Holy Name Medical Center", "Hospital for Special Surgery", "Local Bakery"],
+            "LinkedIn URL": ["", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "healthcare.csv")
+
+    data = ask(client, dataset_id, "Which alumni work in healthcare?")
+
+    result = data["result"]
+    assert_valid_answer(data)
+    assert result["industry"] == "healthcare"
+    assert result["total_matches"] == 2
+    assert {row["First Name"] for row in result["rows"]} == {"Marie", "Bob"}
+
+
+def test_debug_classify_row_endpoint_explains_classification(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Neil", "Bo"],
+            "Last Name": ["Wusu", "Baker"],
+            "Occupation": ["Head of Growth", "Founder"],
+            "Employer": ["Spotify", "Local Bakery"],
+            "LinkedIn URL": ["", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "debug.csv")
+
+    response = client.get(
+        f"/api/debug/classify-row?dataset_id={dataset_id}&name=Neil%20Wusu&industry=tech"
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["match_count"] == 1
+    match = data["matches"][0]
+    assert match["status"] == "confirmed"
+    assert "known_company" in match["match_sources"]
+    assert match["internal_reason"]
+
+    excluded = client.get(
+        f"/api/debug/classify-row?dataset_id={dataset_id}&name=Bo%20Baker&industry=tech"
+    ).get_json()
+    assert excluded["matches"][0]["status"] == "excluded"
+
+
+def test_people_filter_rows_do_not_contain_debug_fields(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Pat"],
+            "Last Name": ["Partner"],
+            "Occupation": ["Partner"],
+            "Employer": ["McKinsey"],
+            "LinkedIn URL": [""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "nodebug.csv")
+
+    data = ask(client, dataset_id, "Which alumni work in consulting?")
+
+    result = data["result"]
+    for row in result["rows"]:
+        for forbidden in ["match_reason", "match_sources", "confidence", "internal_reason", "classification"]:
+            assert forbidden not in row
+    answer = assert_valid_answer(data)
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert "internal_reason" not in rendered
+    assert "match_sources" not in rendered

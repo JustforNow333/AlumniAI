@@ -56,18 +56,18 @@ function profile(parsed) {
     const vals = rows.map(r => r[col]);
     const nonEmpty = vals.filter(v => v !== "" && v != null);
     const missing = vals.length - nonEmpty.length;
-    let type = "text", currency = false;
+    let type = "text", currency = false, isYear = false;
     const nameL = col.toLowerCase();
     const numHits = nonEmpty.filter(v => numRe.test(String(v).trim())).length;
     const dateHits = nonEmpty.filter(looksDate).length;
     if (nonEmpty.length && numHits / nonEmpty.length >= 0.85) {
       type = "num";
       currency = nonEmpty.some(v => String(v).includes("$"));
-      var isYear = /year/.test(nameL) && nonEmpty.every(v => { const n = toNum(v); return n >= 1900 && n <= 2100; });
+      isYear = /year/.test(nameL) && nonEmpty.every(v => { const n = toNum(v); return n >= 1900 && n <= 2100; });
     } else if ((/(date|time)/.test(nameL) || (nonEmpty.length && dateHits / nonEmpty.length >= 0.8))) {
       type = "date";
     }
-    meta[col] = { name: col, type, currency, year: !!isYear, missing, nonEmpty: nonEmpty.length };
+    meta[col] = { name: col, type, currency, year: isYear, missing, nonEmpty: nonEmpty.length };
   }
   const totalMissing = Object.values(meta).reduce((a, m) => a + m.missing, 0);
   return { columns, rows, meta, rows_n: rows.length, cols_n: columns.length, totalMissing };

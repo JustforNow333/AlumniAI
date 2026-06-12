@@ -5,6 +5,7 @@ import re
 
 from app.services import ai_service
 from app.services.analysis_executor import MAX_OPERATIONS
+from app.services.industry_taxonomies import classify_people_question, get_taxonomy
 
 
 INTENTS = {
@@ -292,6 +293,16 @@ def infer_analysis_intent(question, dataset_context):
                 "The intent model requested clarification, so I used the default alumni tech filter."
             )
         return fallback, True, ""
+    if _model_intent_is_unsure(intent):
+        people_spec = classify_people_question(question)
+        if people_spec:
+            fallback = people_filter_fallback_intent(question, people_spec)
+            fallback["assumptions"].extend(intent.get("assumptions") or [])
+            if intent.get("clarification_needed"):
+                fallback["assumptions"].append(
+                    "The intent model requested clarification, so I used the default people filter for this question."
+                )
+            return fallback, True, ""
     return intent, valid, error
 
 
@@ -408,8 +419,12 @@ def validate_analysis_intent(value):
 def intent_to_analysis_plan(intent, dataset_context):
     intent = intent if isinstance(intent, dict) else _unknown_intent("Invalid analysis intent.")
     if intent.get("clarification_needed"):
-        if _should_use_alumni_tech_fallback(intent.get("user_goal") or intent.get("clarifying_question"), intent):
-            intent = alumni_tech_fallback_intent(intent.get("user_goal") or intent.get("clarifying_question"))
+        question_text = intent.get("user_goal") or intent.get("clarifying_question")
+        people_spec = classify_people_question(question_text)
+        if _should_use_alumni_tech_fallback(question_text, intent):
+            intent = alumni_tech_fallback_intent(question_text)
+        elif people_spec:
+            intent = people_filter_fallback_intent(question_text, people_spec)
         else:
             reason = intent.get("clarifying_question") or "Clarification is needed before this analysis can run."
             return _empty_plan(reason)
@@ -568,6 +583,10 @@ def heuristic_intent(question, dataset_context):
         intent["aggregation"] = {"operation": "summary", "group_by_semantic_column": "", "value_semantic_column": value_semantic}
         return intent
 
+    people_spec = classify_people_question(question)
+    if people_spec:
+        return people_filter_fallback_intent(question, people_spec)
+
     if any(term in question_lower for term in ["date", "month", "year"]):
         return _base_intent("aggregate", "columns", question, "metrics", aggregation={"operation": "date_summary"})
 
@@ -602,6 +621,7 @@ def _plan_find_records(intent, resolved, assumptions):
 
     return_columns = _return_columns_for_intent(intent, resolved, default=all_columns)
     operation_type = "contains_any"
+    people_filter_spec = intent.get("people_filter_spec") if isinstance(intent.get("people_filter_spec"), dict) else None
     strict_people_filter = (
         intent.get("intent") == "people_filter"
         or any(_is_tech_concept(concept.get("name")) for concept in intent.get("concepts") or [])
@@ -614,11 +634,22 @@ def _plan_find_records(intent, resolved, assumptions):
         "question": intent.get("user_goal") or "",
         "limit": (intent.get("desired_output") or {}).get("limit", 100),
     }
-    if strict_people_filter:
+    if people_filter_spec:
+        params["filter_mode"] = "people"
+        params["people_filter"] = dict(people_filter_spec)
+    elif not strict_people_filter and (inferred_spec := classify_people_question(intent.get("user_goal"))):
+        # The model produced a confident keyword search, but the question is a
+        # people/industry query: keyword hits may only be candidates, so route
+        # execution through the strict multi-label people classifier.
+        params["filter_mode"] = "people"
+        params["people_filter"] = dict(inferred_spec)
+    elif strict_people_filter:
         params["filter_mode"] = "tech_people"
         params["people_filter"] = {
             "intent": "people_filter",
             "entity": "alumni",
+            "filter_type": "industry",
+            "industry": "tech",
             "criteria_label": "working in tech or technical roles",
             "answer_label": "Alumni matching criteria",
             "filters": {
@@ -853,6 +884,85 @@ def alumni_tech_fallback_intent(question):
         "I used the default alumni tech filter: explicit technical titles, strong tech employer names, known technology companies, and high-confidence classified tech employers count as confirmed matches; uncertain matches are kept separate."
     ]
     return intent
+
+
+def people_filter_fallback_intent(question, spec):
+    """Build a people_filter intent from a deterministic filter spec produced by
+    industry_taxonomies.classify_people_question. Works for industry, employer,
+    and occupation filters; the spec is carried into the plan so the executor
+    can run the layered taxonomy matching."""
+    filter_type = spec.get("filter_type") or "industry"
+    intent = _base_intent("people_filter", "rows", question, "table")
+    intent["entity"] = spec.get("entity") or "alumni"
+    intent["criteria_label"] = spec.get("criteria_label") or ""
+    intent["answer_label"] = spec.get("answer_label") or "Alumni matching criteria"
+    intent["people_filter_spec"] = dict(spec)
+    intent["semantic_columns"] = {
+        "first_name": SEMANTIC_COLUMN_SYNONYMS["first_name"],
+        "last_name": SEMANTIC_COLUMN_SYNONYMS["last_name"],
+        "occupation": SEMANTIC_COLUMN_SYNONYMS["occupation"],
+        "employer": SEMANTIC_COLUMN_SYNONYMS["employer"],
+        "linkedin_url": SEMANTIC_COLUMN_SYNONYMS["linkedin_url"],
+    }
+
+    if filter_type == "employer":
+        terms = [str(term) for term in spec.get("employer_terms") or [] if str(term).strip()]
+        intent["concepts"] = [
+            {"name": "target_employer", "definition": "Requested employer names.", "search_terms": terms, "known_entities": terms}
+        ]
+        intent["filters"] = [
+            {"concept": "target_employer", "apply_to_semantic_columns": ["employer"], "match_mode": "contains_any"}
+        ]
+        intent["assumptions"] = [f"I matched alumni whose employer matches: {', '.join(terms)}."]
+    elif filter_type == "occupation":
+        terms = [str(term) for term in spec.get("occupation_terms") or [] if str(term).strip()]
+        intent["concepts"] = [
+            {"name": "target_occupation", "definition": "Requested occupation/titles.", "search_terms": terms, "known_entities": []}
+        ]
+        intent["filters"] = [
+            {"concept": "target_occupation", "apply_to_semantic_columns": ["occupation"], "match_mode": "contains_any"}
+        ]
+        intent["assumptions"] = [f"I matched alumni whose occupation matches: {', '.join(terms)}."]
+    else:
+        taxonomy = get_taxonomy(spec.get("industry")) or {}
+        industry = taxonomy.get("industry") or str(spec.get("industry") or "industry")
+        title_terms = list(taxonomy.get("title_keywords") or [])
+        employer_terms = _merge_lists(taxonomy.get("employer_keywords"), taxonomy.get("known_companies"))
+        intent["concepts"] = [
+            {
+                "name": f"{industry}_titles",
+                "definition": f"Occupations that indicate {industry}.",
+                "search_terms": title_terms,
+                "known_entities": [],
+            },
+            {
+                "name": f"{industry}_employers",
+                "definition": f"Employers that indicate {industry}.",
+                "search_terms": list(taxonomy.get("employer_keywords") or []),
+                "known_entities": list(taxonomy.get("known_companies") or []),
+            },
+        ]
+        intent["filters"] = [
+            {"concept": f"{industry}_titles", "apply_to_semantic_columns": ["occupation"], "match_mode": "contains_any"},
+            {"concept": f"{industry}_employers", "apply_to_semantic_columns": ["employer"], "match_mode": "contains_any"},
+        ]
+        intent["assumptions"] = [
+            f"I used the {industry} taxonomy: explicit {industry} titles, known {industry} companies, and strong "
+            f"{industry} employer keywords count as confirmed matches; ambiguous employers are kept separate as uncertain."
+        ]
+
+    intent["desired_output"] = {
+        "format": "table",
+        "semantic_columns": ["first_name", "last_name", "occupation", "employer", "linkedin_url"],
+        "limit": _extract_requested_count(str(question or "").lower(), 100),
+    }
+    return intent
+
+
+def _model_intent_is_unsure(intent):
+    if not isinstance(intent, dict):
+        return True
+    return bool(intent.get("clarification_needed")) or intent.get("intent") in {"unknown", ""}
 
 
 def _should_use_alumni_tech_fallback(question, intent=None):

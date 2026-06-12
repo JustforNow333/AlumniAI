@@ -184,6 +184,7 @@ def read_dataframe_from_path(file_path, file_type):
 def create_dataset_metadata(dataset_id, file_metadata, df):
     return {
         "dataset_id": dataset_id,
+        "display_name": file_metadata["original_filename"],
         "original_filename": file_metadata["original_filename"],
         "stored_filename": file_metadata["stored_filename"],
         "file_path": file_metadata["file_path"],
@@ -220,6 +221,84 @@ def register_uploaded_dataset(file_storage):
 def get_dataset_metadata(dataset_id):
     registry = load_dataset_registry()
     return registry.get(str(dataset_id))
+
+
+MAX_DISPLAY_NAME_LENGTH = 120
+
+
+def dataset_public_metadata(metadata):
+    """Shape one registry entry for the dataset library API: tolerate missing
+    fields from older registries and report file availability without loading
+    the DataFrame."""
+    metadata = metadata if isinstance(metadata, dict) else {}
+    file_path = metadata.get("file_path")
+    status = "ready"
+    try:
+        if not file_path or not _resolve_dataset_file_path(file_path).exists():
+            status = "missing"
+    except OSError:
+        status = "missing"
+    original_filename = metadata.get("original_filename") or ""
+    return {
+        "dataset_id": metadata.get("dataset_id"),
+        "display_name": metadata.get("display_name") or original_filename or "Untitled dataset",
+        "original_filename": original_filename,
+        "stored_filename": metadata.get("stored_filename"),
+        "uploaded_at": metadata.get("uploaded_at"),
+        "row_count": metadata.get("row_count"),
+        "column_count": metadata.get("column_count"),
+        "columns": metadata.get("columns") or [],
+        "file_type": metadata.get("file_type"),
+        "status": status,
+    }
+
+
+def list_datasets():
+    """All saved datasets, newest first. Never loads DataFrame contents.
+
+    uploaded_at has second resolution, so ties are broken by registry insertion
+    order (later insertion = newer).
+    """
+    registry = load_dataset_registry()
+    indexed = [
+        (str(metadata.get("uploaded_at") or "") if isinstance(metadata, dict) else "", position, metadata)
+        for position, metadata in enumerate(registry.values())
+    ]
+    indexed.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [dataset_public_metadata(metadata) for _uploaded_at, _position, metadata in indexed]
+
+
+def rename_dataset(dataset_id, display_name):
+    name = str(display_name or "").strip()
+    if not name:
+        raise DatasetValidationError("display_name must not be empty.")
+    if len(name) > MAX_DISPLAY_NAME_LENGTH:
+        name = name[:MAX_DISPLAY_NAME_LENGTH].strip()
+
+    registry = load_dataset_registry()
+    metadata = registry.get(str(dataset_id))
+    if metadata is None:
+        raise DatasetNotFoundError("Dataset not found.")
+
+    metadata["display_name"] = name
+    save_dataset_registry(registry)
+    return dataset_public_metadata(metadata)
+
+
+def delete_dataset(dataset_id):
+    registry = load_dataset_registry()
+    metadata = registry.pop(str(dataset_id), None)
+    if metadata is None:
+        raise DatasetNotFoundError("Dataset not found.")
+
+    file_path = metadata.get("file_path")
+    if file_path:
+        try:
+            _resolve_dataset_file_path(file_path).unlink(missing_ok=True)
+        except OSError:
+            pass  # metadata removal still proceeds; the orphan file is harmless
+    save_dataset_registry(registry)
+    return dataset_public_metadata(metadata)
 
 
 def load_dataset_dataframe(dataset_id):

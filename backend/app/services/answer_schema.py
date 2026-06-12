@@ -316,6 +316,12 @@ def _people_filter_metric_items(result, metrics):
     uncertain_count = result.get("uncertain_count", metrics.get("uncertain_count"))
     if uncertain_count:
         items.append({"label": "Uncertain not counted", "value": format_value(uncertain_count)})
+    adjacent_count = result.get("adjacent_count", metrics.get("adjacent_count"))
+    if adjacent_count:
+        items.append({"label": "Adjacent not counted", "value": format_value(adjacent_count)})
+    adjacent_included = result.get("adjacent_included_count", metrics.get("adjacent_included_count"))
+    if adjacent_included:
+        items.append({"label": "Adjacent included", "value": format_value(adjacent_included)})
     return items
 
 
@@ -338,6 +344,11 @@ def _table_caption(result):
         uncertain = result.get("uncertain_count", metrics.get("uncertain_count"))
         if uncertain:
             pieces.append(f"{format_value(uncertain)} uncertain possible matches were not counted.")
+        adjacent = result.get("adjacent_count", metrics.get("adjacent_count"))
+        if adjacent:
+            pieces.append(
+                f"{format_value(adjacent)} adjacent rows matched broad keywords but were not counted as direct matches."
+            )
         return " ".join(pieces) or "Filtered from the full uploaded dataset."
     if raw is not None and matched is not None and raw != matched:
         pieces.append(f"{format_value(raw)} raw keyword hits were deduplicated to {format_value(matched)} matching rows.")

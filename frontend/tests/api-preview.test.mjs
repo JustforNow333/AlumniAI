@@ -520,3 +520,499 @@ test("local ask fallback is only used outside API mode and is normalized", async
   assert.equal(msg.kind, "structured");
   assert.equal(msg.answer.summary, "Local demo answer.");
 });
+
+test("ask renders non-tech industry people results generically with clean stats", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        answer: {
+          title: "Consulting alumni",
+          summary: "Found consulting alumni.",
+          blocks: [
+            {
+              type: "metrics",
+              items: [
+                { label: "Total keyword hits", value: "44" },
+                { label: "Display limit", value: "100" },
+              ],
+            },
+            {
+              type: "table",
+              columns: [
+                "Nickname",
+                "First Name",
+                "LastName",
+                "Occupation",
+                "Employer",
+                "Match Reason",
+                "internal_reason",
+                "LinkedinURL",
+              ],
+              rows: [
+                ["Pat", "Pat", "Partner", "Partner", "McKinsey", "Matched EMPLOYER", "internal", "linkedin.com/in/pat"],
+                ["Sam", "Sam", "Strategy", "Strategy Consultant", "Family Business", "Matched OCCUPATION", "internal", ""],
+              ],
+            },
+          ],
+          followups: [],
+        },
+        operation: { type: "contains_any" },
+        result: {
+          intent: "people_filter",
+          entity: "alumni",
+          filter_type: "industry",
+          industry: "consulting",
+          answer_label: "Alumni matching criteria",
+          criteria_label: "working in consulting",
+          total_dataset_rows: 300,
+          total_keyword_hits: 44,
+          total_matches: 12,
+          displayed_count: 2,
+          display_limit: 100,
+          uncertain_count: 3,
+          visible_columns: ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"],
+        },
+      }),
+    }),
+  });
+
+  const msg = await Alumni.ask({ dataset_id: "dataset-1" }, "Which alumni work in consulting?");
+  const metrics = msg.answer.blocks.find(block => block.type === "metrics");
+  const table = msg.answer.blocks.find(block => block.type === "table");
+  const rendered = JSON.stringify(msg.answer);
+
+  // Main stat is answer_label + total_matches; uncertain is separate; limits/hits are not the answer.
+  assert.deepEqual(plain(metrics.items), [
+    { label: "Alumni matching criteria", value: "12" },
+    { label: "Showing", value: "2" },
+    { label: "Uncertain not counted", value: "3" },
+  ]);
+  assert.equal(rendered.includes("Display limit"), false);
+  assert.equal(rendered.includes("Total keyword hits"), false);
+  assert.equal(rendered.includes("Analysis Plan Error"), false);
+
+  // visible_columns drive the table; LinkedIn URL is last; debug columns are hidden.
+  assert.deepEqual(plain(table.columns), ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]);
+  assert.equal(table.columns[table.columns.length - 1], "LinkedIn URL");
+  assert.equal(rendered.includes("Match Reason"), false);
+  assert.equal(rendered.includes("internal_reason"), false);
+  assert.equal(rendered.includes("Nickname"), false);
+  assert.deepEqual(plain(table.rows), [
+    ["Pat", "Partner", "Partner", "McKinsey", "linkedin.com/in/pat"],
+    ["Sam", "Strategy", "Strategy Consultant", "Family Business", ""],
+  ]);
+});
+
+test("datasets() fetches the library list and normalizes entries", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          count: 2,
+          datasets: [
+            {
+              dataset_id: "new-id",
+              display_name: "Renamed Alumni",
+              original_filename: "alumni.xlsx",
+              stored_filename: "new-id_alumni.xlsx",
+              uploaded_at: "2026-06-11T10:00:00",
+              row_count: 332,
+              column_count: 12,
+              columns: ["First Name", "Last Name"],
+              file_type: "xlsx",
+              status: "ready",
+            },
+            {
+              dataset_id: "old-id",
+              display_name: "",
+              original_filename: "older.csv",
+              uploaded_at: "2026-06-10T09:00:00",
+              row_count: 5,
+              column_count: 2,
+              columns: ["A", "B"],
+              file_type: "csv",
+              status: "missing",
+            },
+          ],
+        }),
+      };
+    },
+  });
+
+  const list = await Alumni.datasets();
+
+  assert.equal(calls[0].url, "/api/datasets");
+  assert.equal(list.length, 2);
+  assert.equal(list[0].dataset_id, "new-id");
+  assert.equal(list[0].display_name, "Renamed Alumni");
+  assert.equal(list[0].status, "ready");
+  // display_name falls back to original filename; missing status survives.
+  assert.equal(list[1].display_name, "older.csv");
+  assert.equal(list[1].status, "missing");
+});
+
+test("datasets() rejects with the backend error message when the list fails", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "Dataset registry is invalid JSON." }),
+    }),
+  });
+
+  await assert.rejects(() => Alumni.datasets(), /Dataset registry is invalid JSON\./);
+});
+
+test("datasets() resolves empty without fetch outside API mode", async () => {
+  const Alumni = loadApi({
+    config: { useApi: false, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+
+  assert.deepEqual(plain(await Alumni.datasets()), []);
+});
+
+test("renameDataset PATCHes the dataset and returns updated metadata", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          dataset_id: "abc 123",
+          display_name: "Class of 2026",
+          original_filename: "alumni.csv",
+          status: "ready",
+        }),
+      };
+    },
+  });
+
+  const updated = await Alumni.renameDataset("abc 123", "Class of 2026");
+
+  assert.equal(calls[0].url, "/api/datasets/abc%20123");
+  assert.equal(calls[0].options.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { display_name: "Class of 2026" });
+  assert.equal(updated.display_name, "Class of 2026");
+});
+
+test("renameDataset rejects with backend validation errors", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "display_name must not be empty." }),
+    }),
+  });
+
+  await assert.rejects(() => Alumni.renameDataset("abc", "  "), /display_name must not be empty\./);
+});
+
+test("deleteDataset DELETEs the dataset and surfaces clean 404 errors", async () => {
+  const calls = [];
+  let respondNotFound = false;
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (respondNotFound) {
+        return { ok: false, status: 404, json: async () => ({ error: "Dataset not found." }) };
+      }
+      return { ok: true, json: async () => ({ deleted: true, dataset_id: "gone-id" }) };
+    },
+  });
+
+  const result = await Alumni.deleteDataset("gone-id");
+  assert.equal(calls[0].url, "/api/datasets/gone-id");
+  assert.equal(calls[0].options.method, "DELETE");
+  assert.deepEqual(plain(result), { deleted: true, dataset_id: "gone-id" });
+
+  respondNotFound = true;
+  await assert.rejects(() => Alumni.deleteDataset("gone-id"), /Dataset not found\./);
+});
+
+test("normalizeDatasetEntry tolerates missing metadata fields", () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+  const normalize = Alumni._test.normalizeDatasetEntry;
+
+  assert.equal(normalize(null), null);
+  assert.equal(normalize({}), null);
+  const minimal = normalize({ dataset_id: "x" });
+  assert.equal(minimal.display_name, "Untitled dataset");
+  assert.equal(minimal.status, "ready");
+  assert.deepEqual(plain(minimal.columns), []);
+  assert.equal(minimal.row_count, null);
+});
+
+/* ---- saved insights (manual snapshots, not history) ---- */
+
+test("insights GETs the list, supports dataset filtering, and normalizes entries", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          insights: [
+            {
+              insight_id: "ins-1",
+              dataset_id: "ds-1",
+              dataset_name_snapshot: "alumni.csv",
+              dataset_status: "ready",
+              title: "Tech alumni",
+              question: "Which alumni work in tech?",
+              answer: "2 alumni work in tech.",
+              created_at: "2026-06-12T10:00:00",
+              updated_at: "2026-06-12T10:00:00",
+              tags: ["tech"],
+            },
+            { insight_id: "" },
+          ],
+          count: 2,
+        }),
+      };
+    },
+  });
+
+  const all = await Alumni.insights();
+  assert.equal(calls[0].url, "/api/insights");
+  assert.equal(all.length, 1);
+  assert.equal(all[0].insight_id, "ins-1");
+  assert.equal(all[0].dataset_status, "ready");
+  assert.equal(all[0].answer, "2 alumni work in tech.");
+
+  await Alumni.insights("ds 1");
+  assert.equal(calls[1].url, "/api/insights?dataset_id=ds%201");
+});
+
+test("saveInsight POSTs dataset_id, question, answer, and title", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          insight_id: "ins-9",
+          dataset_id: "ds-1",
+          dataset_name_snapshot: "alumni.csv",
+          title: "Tech alumni",
+          question: "Which alumni work in tech?",
+          answer: "2 alumni work in tech.",
+        }),
+      };
+    },
+  });
+
+  const created = await Alumni.saveInsight({
+    dataset_id: "ds-1",
+    title: "Tech alumni",
+    question: "Which alumni work in tech?",
+    answer: "2 alumni work in tech.",
+  });
+
+  assert.equal(calls[0].url, "/api/insights");
+  assert.equal(calls[0].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    dataset_id: "ds-1",
+    question: "Which alumni work in tech?",
+    answer: "2 alumni work in tech.",
+    title: "Tech alumni",
+  });
+  assert.equal(created.insight_id, "ins-9");
+});
+
+test("saveInsight fills a default title from the question when title is missing", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 201, json: async () => ({ insight_id: "ins-2" }) };
+    },
+  });
+
+  await Alumni.saveInsight({ dataset_id: "ds-1", question: "Which alumni work in consulting?", answer: "5 direct matches." });
+  assert.equal(JSON.parse(calls[0].options.body).title, "Which alumni work in consulting");
+});
+
+test("saveInsight refuses to save without dataset, question, or answer", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+
+  await assert.rejects(() => Alumni.saveInsight({ question: "Q", answer: "A" }), /active dataset/);
+  await assert.rejects(() => Alumni.saveInsight({ dataset_id: "ds", answer: "A" }), /original question/);
+  await assert.rejects(() => Alumni.saveInsight({ dataset_id: "ds", question: "Q", answer: " " }), /completed answer/);
+});
+
+test("renameInsight PATCHes the title and surfaces errors", async () => {
+  const calls = [];
+  let fail = false;
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (fail) return { ok: false, status: 400, json: async () => ({ error: "title must not be empty." }) };
+      return { ok: true, json: async () => ({ insight_id: "ins 1", title: "Renamed" }) };
+    },
+  });
+
+  const updated = await Alumni.renameInsight("ins 1", "Renamed");
+  assert.equal(calls[0].url, "/api/insights/ins%201");
+  assert.equal(calls[0].options.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { title: "Renamed" });
+  assert.equal(updated.title, "Renamed");
+
+  fail = true;
+  await assert.rejects(() => Alumni.renameInsight("ins 1", "  "), /title must not be empty\./);
+});
+
+test("deleteInsight DELETEs and surfaces clean 404 errors", async () => {
+  const calls = [];
+  let respondNotFound = false;
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (respondNotFound) {
+        return { ok: false, status: 404, json: async () => ({ error: "Saved insight not found." }) };
+      }
+      return { ok: true, json: async () => ({ deleted: true, insight_id: "ins-1" }) };
+    },
+  });
+
+  const result = await Alumni.deleteInsight("ins-1");
+  assert.equal(calls[0].url, "/api/insights/ins-1");
+  assert.equal(calls[0].options.method, "DELETE");
+  assert.deepEqual(plain(result), { deleted: true, insight_id: "ins-1" });
+
+  respondNotFound = true;
+  await assert.rejects(() => Alumni.deleteInsight("ins-1"), /Saved insight not found\./);
+});
+
+test("insight fetches a single saved insight with full question and answer", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          insight_id: "ins-1",
+          question: "Which alumni work in tech?",
+          answer: "Full saved answer text.",
+          dataset_status: "deleted",
+        }),
+      };
+    },
+  });
+
+  const insight = await Alumni.insight("ins-1");
+  assert.equal(calls[0].url, "/api/insights/ins-1");
+  assert.equal(insight.question, "Which alumni work in tech?");
+  assert.equal(insight.answer, "Full saved answer text.");
+  assert.equal(insight.dataset_status, "deleted");
+});
+
+test("insights are API-mode only; demo mode resolves empty and rejects writes", async () => {
+  const Alumni = loadApi({
+    config: { useApi: false },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called in demo mode");
+    },
+  });
+
+  assert.deepEqual(plain(await Alumni.insights()), []);
+  await assert.rejects(() => Alumni.saveInsight({ dataset_id: "x", question: "q", answer: "a" }), /API mode/);
+  await assert.rejects(() => Alumni.renameInsight("x", "t"), /API mode/);
+  await assert.rejects(() => Alumni.deleteInsight("x"), /API mode/);
+});
+
+test("normalizeInsightEntry tolerates missing fields and bad dataset_status", () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+  const normalize = Alumni._test.normalizeInsightEntry;
+
+  assert.equal(normalize(null), null);
+  assert.equal(normalize({}), null);
+  const minimal = normalize({ insight_id: "x", question: "Which alumni work in law?" });
+  assert.equal(minimal.dataset_name_snapshot, "Unknown dataset");
+  assert.equal(minimal.dataset_status, "ready");
+  assert.equal(minimal.title, "Which alumni work in law");
+  assert.deepEqual(plain(minimal.tags), []);
+  assert.deepEqual(plain(minimal.metadata), {});
+});
+
+test("defaultInsightTitle shortens long questions and strips punctuation", () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+  const title = Alumni._test.defaultInsightTitle;
+
+  assert.equal(title("Which alumni work in tech?"), "Which alumni work in tech");
+  assert.equal(title("   "), "Saved insight");
+  const long = title("Which alumni are working in consulting, advisory, or professional services firms across all graduating classes?");
+  assert.ok(long.length <= 82);
+  assert.ok(long.endsWith("…"));
+});
+
+test("insightTextFromAnswer flattens summary, markdown, and metrics into snapshot text", () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+  const flatten = Alumni._test.insightTextFromAnswer;
+
+  const text = flatten(
+    {
+      summary: "5 direct consulting matches.",
+      blocks: [
+        { type: "metrics", items: [{ label: "Alumni matching criteria", value: "5" }] },
+        { type: "table", columns: ["First Name", "Employer"], rows: [["A", "EY"], ["B", "KPMG"]], caption: "Searched columns: Occupation, Employer" },
+        { type: "markdown", content: "Assumptions: consulting taxonomy used." },
+      ],
+    },
+    "fallback"
+  );
+  assert.ok(text.startsWith("5 direct consulting matches."));
+  assert.ok(text.includes("Alumni matching criteria: 5"));
+  assert.ok(text.includes("Table: 2 rows (First Name, Employer)"));
+  assert.ok(text.includes("Assumptions: consulting taxonomy used."));
+
+  assert.equal(flatten(null, "plain fallback"), "plain fallback");
+});

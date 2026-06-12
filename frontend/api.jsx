@@ -37,13 +37,6 @@ function datasetIdFromUpload(data) {
   return data.dataset_id || (data.metadata && data.metadata.dataset_id) || "";
 }
 
-function pickDisplayColsApi(ds, sortCol) {
-  const text = ds.columns.filter(c => ds.meta[c] && ds.meta[c].type === "text");
-  const nameCol = text.find(c => /name/i.test(c)) || text[0] || ds.columns[0];
-  const extra = ds.columns.filter(c => c !== nameCol && c !== sortCol).slice(0, 2);
-  return [nameCol, ...extra, sortCol].filter((v, i, a) => a.indexOf(v) === i);
-}
-
 function cleanText(value) {
   if (value == null) return "";
   return String(value).replace(/<[^>\n]*>/g, "").replace(/\u0000/g, "").trim();
@@ -154,6 +147,12 @@ function peopleMetricsBlock(result) {
   }
   if (result.uncertain_count) {
     items.push({ label: "Uncertain not counted", value: cleanText(result.uncertain_count) });
+  }
+  if (result.adjacent_count) {
+    items.push({ label: "Adjacent not counted", value: cleanText(result.adjacent_count) });
+  }
+  if (result.adjacent_included_count) {
+    items.push({ label: "Adjacent included", value: cleanText(result.adjacent_included_count) });
   }
   return { type: "metrics", items };
 }
@@ -288,6 +287,144 @@ async function apiSummary(datasetId) {
   if (!res.ok) throw new Error(data.error || `Summary failed (${res.status})`);
   return data;
 }
+function normalizeDatasetEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const datasetId = entry.dataset_id || "";
+  if (!datasetId) return null;
+  return {
+    dataset_id: datasetId,
+    display_name: cleanText(entry.display_name || entry.original_filename || "Untitled dataset"),
+    original_filename: cleanText(entry.original_filename || ""),
+    stored_filename: entry.stored_filename || "",
+    uploaded_at: entry.uploaded_at || "",
+    row_count: entry.row_count != null ? Number(entry.row_count) || 0 : null,
+    column_count: entry.column_count != null ? Number(entry.column_count) || 0 : null,
+    columns: Array.isArray(entry.columns) ? entry.columns : [],
+    file_type: entry.file_type || "",
+    status: entry.status === "missing" ? "missing" : "ready",
+  };
+}
+async function apiDatasets() {
+  const res = await fetch(base() + "/api/datasets");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not load datasets (${res.status})`);
+  const list = Array.isArray(data.datasets) ? data.datasets : Array.isArray(data) ? data : [];
+  return list.map(normalizeDatasetEntry).filter(Boolean);
+}
+async function apiRenameDataset(datasetId, displayName) {
+  if (!datasetId) throw new Error("Cannot rename because dataset_id is missing.");
+  const res = await fetch(base() + `/api/datasets/${encodeURIComponent(datasetId)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: displayName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Rename failed (${res.status})`);
+  return normalizeDatasetEntry(data);
+}
+async function apiDeleteDataset(datasetId) {
+  if (!datasetId) throw new Error("Cannot delete because dataset_id is missing.");
+  const res = await fetch(base() + `/api/datasets/${encodeURIComponent(datasetId)}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Delete failed (${res.status})`);
+  return data;
+}
+/* ---- saved insights (manually saved answer snapshots; not history) ---- */
+function defaultInsightTitle(question) {
+  const text = String(question || "").replace(/\s+/g, " ").trim().replace(/[?.!\s]+$/, "");
+  if (!text) return "Saved insight";
+  if (text.length <= 80) return text;
+  const clipped = text.slice(0, 80).replace(/\s+\S*$/, "").trim();
+  return (clipped || text.slice(0, 80)) + "…";
+}
+function insightTextFromAnswer(answer, fallbackText) {
+  // Flatten a structured answer into the plain-text snapshot stored with the
+  // insight: summary plus markdown/metrics content, never debug fields.
+  if (!answer || typeof answer !== "object") return cleanText(fallbackText || "");
+  const parts = [];
+  if (answer.summary) parts.push(cleanText(answer.summary));
+  for (const block of Array.isArray(answer.blocks) ? answer.blocks : []) {
+    if (!block || typeof block !== "object") continue;
+    if (block.type === "markdown") {
+      const content = cleanText(block.content);
+      if (content && content !== parts[0]) parts.push(content);
+    } else if (block.type === "metrics") {
+      const lines = (block.items || [])
+        .map(item => item && (item.label || item.value) ? `${cleanText(item.label)}: ${cleanText(item.value)}` : "")
+        .filter(Boolean);
+      if (lines.length) parts.push(lines.join("\n"));
+    } else if (block.type === "table") {
+      const rows = Array.isArray(block.rows) ? block.rows.length : 0;
+      if (rows) parts.push(`Table: ${rows} row${rows === 1 ? "" : "s"} (${(block.columns || []).join(", ")})`);
+      if (block.caption) parts.push(cleanText(block.caption));
+    }
+  }
+  const text = parts.filter(Boolean).join("\n\n");
+  return text || cleanText(fallbackText || "");
+}
+function normalizeInsightEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const insightId = entry.insight_id || "";
+  if (!insightId) return null;
+  return {
+    insight_id: insightId,
+    dataset_id: entry.dataset_id || "",
+    dataset_name_snapshot: cleanText(entry.dataset_name_snapshot || "Unknown dataset"),
+    dataset_status: entry.dataset_status === "deleted" ? "deleted" : "ready",
+    title: cleanText(entry.title || "") || defaultInsightTitle(entry.question),
+    question: cleanText(entry.question || ""),
+    answer: typeof entry.answer === "string" ? entry.answer : cleanText(entry.answer || ""),
+    created_at: entry.created_at || "",
+    updated_at: entry.updated_at || "",
+    tags: Array.isArray(entry.tags) ? entry.tags.map(cleanText).filter(Boolean) : [],
+    metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+  };
+}
+async function apiInsights(datasetId) {
+  const query = datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : "";
+  const res = await fetch(base() + "/api/insights" + query);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not load saved insights (${res.status})`);
+  const list = Array.isArray(data.insights) ? data.insights : Array.isArray(data) ? data : [];
+  return list.map(normalizeInsightEntry).filter(Boolean);
+}
+async function apiGetInsight(insightId) {
+  if (!insightId) throw new Error("Cannot load insight because insight_id is missing.");
+  const res = await fetch(base() + `/api/insights/${encodeURIComponent(insightId)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not load insight (${res.status})`);
+  return normalizeInsightEntry(data);
+}
+async function apiSaveInsight({ dataset_id, title, question, answer, tags }) {
+  if (!dataset_id) throw new Error("Cannot save an insight without an active dataset.");
+  if (!String(question || "").trim()) throw new Error("Cannot save an insight without the original question.");
+  if (!String(answer || "").trim()) throw new Error("Cannot save an insight without a completed answer.");
+  const body = { dataset_id, question, answer, title: title || defaultInsightTitle(question) };
+  if (Array.isArray(tags) && tags.length) body.tags = tags;
+  const res = await fetch(base() + "/api/insights", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`);
+  return normalizeInsightEntry(data);
+}
+async function apiRenameInsight(insightId, title) {
+  if (!insightId) throw new Error("Cannot rename because insight_id is missing.");
+  const res = await fetch(base() + `/api/insights/${encodeURIComponent(insightId)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Rename failed (${res.status})`);
+  return normalizeInsightEntry(data);
+}
+async function apiDeleteInsight(insightId) {
+  if (!insightId) throw new Error("Cannot delete because insight_id is missing.");
+  const res = await fetch(base() + `/api/insights/${encodeURIComponent(insightId)}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Delete failed (${res.status})`);
+  return data;
+}
 async function apiAsk(ds, question) {
   const res = await fetch(base() + "/api/ask", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -323,11 +460,39 @@ window.Alumni = {
     return Promise.resolve(null);
   },
   ask(ds, q) { return cfg().useApi ? apiAsk(ds, q) : Promise.resolve(window.ask(ds, q)).then(adaptLocalAnswer); },
+  datasets() { return cfg().useApi ? apiDatasets() : Promise.resolve([]); },
+  renameDataset(datasetId, displayName) {
+    if (!cfg().useApi) return Promise.reject(new Error("Dataset library requires API mode."));
+    return apiRenameDataset(datasetId, displayName);
+  },
+  deleteDataset(datasetId) {
+    if (!cfg().useApi) return Promise.reject(new Error("Dataset library requires API mode."));
+    return apiDeleteDataset(datasetId);
+  },
+  insights(datasetId) { return cfg().useApi ? apiInsights(datasetId) : Promise.resolve([]); },
+  insight(insightId) {
+    if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
+    return apiGetInsight(insightId);
+  },
+  saveInsight(payload) {
+    if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
+    return apiSaveInsight(payload || {});
+  },
+  renameInsight(insightId, title) {
+    if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
+    return apiRenameInsight(insightId, title);
+  },
+  deleteInsight(insightId) {
+    if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
+    return apiDeleteInsight(insightId);
+  },
   helpers: {
     canonicalDisplayColumn,
     isLinkedInColumn,
     linkedInHref,
     isDebugColumn,
+    defaultInsightTitle,
+    insightTextFromAnswer,
   },
   _test: {
     canonicalDisplayColumn,
@@ -335,5 +500,9 @@ window.Alumni = {
     linkedInHref,
     isDebugColumn,
     sanitizeStructuredAnswer,
+    normalizeDatasetEntry,
+    normalizeInsightEntry,
+    defaultInsightTitle,
+    insightTextFromAnswer,
   },
 };
