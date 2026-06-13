@@ -238,7 +238,14 @@ function AnswerCard({ answer, onFollowup }) {
   );
 }
 function AnswerRenderer({ answer, fallbackText, onFollowup }) {
-  return <AnswerCard answer={normalizeAnswerForRender(answer, fallbackText)} onFollowup={onFollowup} />;
+  return <DatasetResponseView answer={answer} fallbackText={fallbackText} onFollowup={onFollowup} />;
+}
+function DatasetResponseView({ response, answer, fallbackText, onFollowup }) {
+  let source = answer;
+  if (response && typeof response === "object") {
+    source = response.answer && typeof response.answer === "object" ? response.answer : response;
+  }
+  return <AnswerCard answer={normalizeAnswerForRender(source, fallbackText)} onFollowup={onFollowup} />;
 }
 
 /* ---------- chat pieces ---------- */
@@ -261,7 +268,7 @@ function AiMsg({ ds, msg, onFollowup, onSaveInsight }) {
       <div className="msg-av ai"><Icon name="sparkle" size={15} /></div>
       <div className="msg-body col" style={{ gap: 13 }}>
         <div className="msg-name">Alumni AI</div>
-        <AnswerRenderer answer={msg.answer} fallbackText={msg.text} onFollowup={onFollowup} />
+        <DatasetResponseView response={msg.response_payload} answer={msg.answer} fallbackText={msg.text} onFollowup={onFollowup} />
         {(msg.op || canSave) && (
           <div className="row gap8" style={{ color: "var(--text-3)", fontSize: 11.5, alignItems: "center" }}>
             {msg.op && (
@@ -499,6 +506,12 @@ function insightPreviewText(answer) {
   return text.length > 140 ? text.slice(0, 140).trim() + "…" : text;
 }
 function InsightDetail({ insight, datasetAvailable, isActiveDataset, onBack, onRename, onDelete, onUseDataset }) {
+  const [showFullResponse, setShowFullResponse] = useState(false);
+  const hasFullResponse = !!(insight.response_payload && typeof insight.response_payload === "object");
+  useEffect(() => {
+    setShowFullResponse(false);
+  }, [insight.insight_id]);
+
   return (
     <div className="col" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 14, maxWidth: 860, width: "100%" }}>
       <div className="row" style={{ alignItems: "center", gap: 10 }}>
@@ -536,7 +549,24 @@ function InsightDetail({ insight, datasetAvailable, isActiveDataset, onBack, onR
         <div className="col" style={{ gap: 4 }}>
           <span className="kicker">Saved answer</span>
           <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{insight.answer}</div>
+          {hasFullResponse && (
+            <button
+              className="btn btn-primary"
+              data-action="open-full-response"
+              style={{ flex: "none", alignSelf: "flex-start", marginTop: 8 }}
+              onClick={() => setShowFullResponse(open => !open)}
+            >
+              <Icon name="sparkle" size={14} /> {showFullResponse ? "Hide full response" : "Open full response"}
+            </button>
+          )}
         </div>
+        {showFullResponse && hasFullResponse && (
+          <div className="col" data-insight-full-response="true" style={{ gap: 12, paddingTop: 2 }}>
+            <div className="divider" />
+            <span className="kicker">Full response</span>
+            <DatasetResponseView response={insight.response_payload} fallbackText={insight.answer} />
+          </div>
+        )}
         <div className="row">
           <button
             className="btn btn-primary"
@@ -768,7 +798,13 @@ function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalys
     if (title == null) return;
     const answerText = helpers.insightTextFromAnswer ? helpers.insightTextFromAnswer(msg.answer, msg.text) : (msg.text || "");
     patchMessage(index, { insightSaving: true, insightError: "" });
-    onSaveInsight({ dataset_id: ds.dataset_id, question: msg.question, answer: answerText, title: title.trim() || defaultTitle })
+    onSaveInsight({
+      dataset_id: ds.dataset_id,
+      question: msg.question,
+      answer: answerText,
+      title: title.trim() || defaultTitle,
+      response_payload: msg.response_payload || null,
+    })
       .then(() => patchMessage(index, { insightSaving: false, insightSaved: true }))
       .catch(e => patchMessage(index, { insightSaving: false, insightError: e.message || String(e) }));
   };

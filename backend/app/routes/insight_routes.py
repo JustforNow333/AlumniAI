@@ -34,10 +34,11 @@ def create_insight_route():
         insight = create_insight(
             dataset_id=payload.get("dataset_id"),
             question=payload.get("question"),
-            answer=payload.get("answer"),
+            answer=payload.get("answer") if "answer" in payload else payload.get("answer_text"),
             title=payload.get("title"),
             tags=payload.get("tags"),
             extra_metadata=payload.get("metadata"),
+            response_payload=payload.get("response_payload"),
         )
     except InsightStoreError as exc:
         return jsonify({"error": str(exc)}), exc.status_code

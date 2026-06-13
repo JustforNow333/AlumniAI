@@ -18,12 +18,14 @@ from uuid import uuid4
 from flask import current_app, has_app_context
 
 from app.services.dataset_store import get_dataset_metadata, get_storage_paths
+from app.services.spreadsheet_service import to_json_safe
 
 
 MAX_TITLE_LENGTH = 120
 MAX_TAG_LENGTH = 40
 MAX_TAGS = 12
 GENERATED_TITLE_LENGTH = 80
+MAX_RESPONSE_PAYLOAD_BYTES = 2_000_000
 
 
 class InsightStoreError(Exception):
@@ -111,14 +113,24 @@ def insight_public_metadata(entry):
     except Exception:
         dataset_status = "deleted"
     metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+    answer_text = entry.get("answer") or ""
+    response_payload = entry.get("response_payload")
+    if not isinstance(response_payload, dict):
+        response_payload = None
     return {
+        "id": entry.get("insight_id"),
         "insight_id": entry.get("insight_id"),
         "dataset_id": dataset_id,
+        "dataset_filename": entry.get("dataset_filename_snapshot")
+        or entry.get("dataset_name_snapshot")
+        or "Unknown dataset",
         "dataset_name_snapshot": entry.get("dataset_name_snapshot") or "Unknown dataset",
         "dataset_status": dataset_status,
         "title": entry.get("title") or generate_title_from_question(entry.get("question")),
         "question": entry.get("question") or "",
-        "answer": entry.get("answer") or "",
+        "answer": answer_text,
+        "answer_text": answer_text,
+        "response_payload": response_payload,
         "created_at": entry.get("created_at"),
         "updated_at": entry.get("updated_at"),
         "tags": [str(tag) for tag in entry.get("tags") or [] if str(tag).strip()],
@@ -126,7 +138,7 @@ def insight_public_metadata(entry):
     }
 
 
-def create_insight(dataset_id, question, answer, title=None, tags=None, extra_metadata=None):
+def create_insight(dataset_id, question, answer, title=None, tags=None, extra_metadata=None, response_payload=None):
     """Validate and persist a manually saved insight. Returns the public shape."""
     dataset_id = str(dataset_id or "").strip()
     if not dataset_id:
@@ -143,6 +155,7 @@ def create_insight(dataset_id, question, answer, title=None, tags=None, extra_me
     answer_text = str(answer or "").strip()
     if not answer_text:
         raise InsightValidationError("answer must not be empty.")
+    cleaned_response_payload = _clean_response_payload(response_payload)
 
     title_text = str(title or "").strip()[:MAX_TITLE_LENGTH].strip()
     if not title_text:
@@ -170,6 +183,9 @@ def create_insight(dataset_id, question, answer, title=None, tags=None, extra_me
         "dataset_name_snapshot": dataset_metadata.get("display_name")
         or dataset_metadata.get("original_filename")
         or "Untitled dataset",
+        "dataset_filename_snapshot": dataset_metadata.get("original_filename")
+        or dataset_metadata.get("display_name")
+        or "Untitled dataset",
         "title": title_text,
         "question": question_text,
         "answer": answer_text,
@@ -178,6 +194,8 @@ def create_insight(dataset_id, question, answer, title=None, tags=None, extra_me
         "tags": _clean_tags(tags),
         "metadata": metadata,
     }
+    if cleaned_response_payload is not None:
+        entry["response_payload"] = cleaned_response_payload
     registry[insight_id] = entry
     save_insight_registry(registry)
     return insight_public_metadata(entry)
@@ -253,3 +271,21 @@ def _clean_tags(tags):
         if text and text not in cleaned:
             cleaned.append(text)
     return cleaned
+
+
+def _clean_response_payload(response_payload):
+    if response_payload is None:
+        return None
+    if not isinstance(response_payload, dict):
+        raise InsightValidationError("response_payload must be a JSON object.")
+
+    safe_payload = to_json_safe(response_payload)
+    try:
+        encoded = json.dumps(safe_payload, ensure_ascii=False)
+    except TypeError as exc:
+        raise InsightValidationError("response_payload must be JSON serializable.") from exc
+
+    if len(encoded.encode("utf-8")) > MAX_RESPONSE_PAYLOAD_BYTES:
+        raise InsightValidationError("response_payload is too large.")
+
+    return json.loads(encoded)

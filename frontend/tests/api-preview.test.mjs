@@ -289,6 +289,10 @@ test("ask posts the active dataset_id and keeps structured answer blocks", async
   assert.equal(msg.answer.blocks[0].type, "table");
   assert.equal(msg.answer.blocks[1].type, "metrics");
   assert.equal(msg.answer.blocks[2].type, "ranked_list");
+  assert.equal(msg.response_payload.question, "Top rows by revenue");
+  assert.deepEqual(plain(msg.response_payload.answer), plain(msg.answer));
+  assert.deepEqual(plain(msg.response_payload.operation), { type: "top_rows", ascending: false });
+  assert.deepEqual(plain(msg.response_payload.answer.blocks[0].rows), [["Echo", "500"]]);
 });
 
 test("ask safely adapts legacy plain-text backend answers", async () => {
@@ -806,6 +810,17 @@ test("insights GETs the list, supports dataset filtering, and normalizes entries
 
 test("saveInsight POSTs dataset_id, question, answer, and title", async () => {
   const calls = [];
+  const responsePayload = {
+    answer: {
+      summary: "2 alumni work in tech.",
+      blocks: [
+        { type: "metrics", items: [{ label: "Alumni matching criteria", value: "2" }] },
+        { type: "table", columns: ["First Name", "Employer"], rows: [["Ada", "Google"]] },
+      ],
+      followups: [],
+    },
+    result: { intent: "people_filter", entity: "alumni", total_matches: 2 },
+  };
   const Alumni = loadApi({
     config: { useApi: true, apiBase: "" },
     fetchImpl: async (url, options) => {
@@ -820,6 +835,7 @@ test("saveInsight POSTs dataset_id, question, answer, and title", async () => {
           title: "Tech alumni",
           question: "Which alumni work in tech?",
           answer: "2 alumni work in tech.",
+          response_payload: responsePayload,
         }),
       };
     },
@@ -830,6 +846,7 @@ test("saveInsight POSTs dataset_id, question, answer, and title", async () => {
     title: "Tech alumni",
     question: "Which alumni work in tech?",
     answer: "2 alumni work in tech.",
+    response_payload: responsePayload,
   });
 
   assert.equal(calls[0].url, "/api/insights");
@@ -839,8 +856,10 @@ test("saveInsight POSTs dataset_id, question, answer, and title", async () => {
     question: "Which alumni work in tech?",
     answer: "2 alumni work in tech.",
     title: "Tech alumni",
+    response_payload: responsePayload,
   });
   assert.equal(created.insight_id, "ins-9");
+  assert.deepEqual(plain(created.response_payload.answer.blocks[1].rows), [["Ada", "Google"]]);
 });
 
 test("saveInsight fills a default title from the question when title is missing", async () => {
@@ -917,6 +936,21 @@ test("deleteInsight DELETEs and surfaces clean 404 errors", async () => {
 
 test("insight fetches a single saved insight with full question and answer", async () => {
   const calls = [];
+  const responsePayload = {
+    answer: {
+      title: "Tech alumni",
+      summary: "Full saved answer text.",
+      blocks: [
+        {
+          type: "table",
+          columns: ["First Name", "Last Name", "Employer"],
+          rows: [["Ada", "Lovelace", "Google"]],
+        },
+      ],
+      followups: [],
+    },
+    result: { intent: "people_filter", entity: "alumni", total_matches: 1 },
+  };
   const Alumni = loadApi({
     config: { useApi: true, apiBase: "" },
     fetchImpl: async (url, options) => {
@@ -927,6 +961,7 @@ test("insight fetches a single saved insight with full question and answer", asy
           insight_id: "ins-1",
           question: "Which alumni work in tech?",
           answer: "Full saved answer text.",
+          response_payload: responsePayload,
           dataset_status: "deleted",
         }),
       };
@@ -938,6 +973,9 @@ test("insight fetches a single saved insight with full question and answer", asy
   assert.equal(insight.question, "Which alumni work in tech?");
   assert.equal(insight.answer, "Full saved answer text.");
   assert.equal(insight.dataset_status, "deleted");
+  const table = insight.response_payload.answer.blocks.find(block => block.type === "table");
+  assert.deepEqual(plain(table.columns), ["First Name", "Last Name", "Employer"]);
+  assert.deepEqual(plain(table.rows), [["Ada", "Lovelace", "Google"]]);
 });
 
 test("insights are API-mode only; demo mode resolves empty and rejects writes", async () => {
@@ -969,6 +1007,7 @@ test("normalizeInsightEntry tolerates missing fields and bad dataset_status", ()
   assert.equal(minimal.dataset_name_snapshot, "Unknown dataset");
   assert.equal(minimal.dataset_status, "ready");
   assert.equal(minimal.title, "Which alumni work in law");
+  assert.equal(minimal.response_payload, null);
   assert.deepEqual(plain(minimal.tags), []);
   assert.deepEqual(plain(minimal.metadata), {});
 });

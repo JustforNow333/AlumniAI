@@ -81,11 +81,57 @@ def test_create_insight_returns_full_snapshot(client):
     assert insight["title"] == "Alumni working in tech"
     assert insight["question"] == "Which alumni work in tech?"
     assert insight["answer"].startswith("2 alumni work in tech")
+    assert insight["answer_text"] == insight["answer"]
+    assert insight["response_payload"] is None
+    assert insight["dataset_filename"] == "alumni.csv"
     assert insight["created_at"]
     assert insight["updated_at"] == insight["created_at"]
     assert insight["tags"] == []
     assert insight["metadata"]["row_count"] == 3
     assert insight["metadata"]["column_count"] == 3
+
+
+def test_create_insight_persists_full_response_payload(client):
+    dataset_id = upload_dataframe(client, sample_df(3), "alumni.csv")
+    response_payload = {
+        "answer": {
+            "title": "Tech alumni",
+            "summary": "2 alumni match tech criteria.",
+            "blocks": [
+                {"type": "metrics", "items": [{"label": "Alumni matching criteria", "value": "2"}]},
+                {
+                    "type": "table",
+                    "columns": ["First Name", "Occupation", "Employer"],
+                    "rows": [["Person0", "Software Engineer", "Acme"], ["Person1", "Software Engineer", "Acme"]],
+                    "caption": "Searched columns: Occupation, Employer",
+                },
+                {"type": "markdown", "content": "Assumptions: strict people filter."},
+            ],
+            "followups": [],
+        },
+        "answer_text": "2 alumni match tech criteria.",
+        "operation": {"type": "contains_any"},
+        "result": {
+            "intent": "people_filter",
+            "entity": "alumni",
+            "total_matches": 2,
+            "uncertain_count": 1,
+            "adjacent_count": 4,
+            "total_dataset_rows": 3,
+        },
+        "metadata": {"searched_columns": ["Occupation", "Employer"]},
+    }
+
+    created = save_insight(client, dataset_id, response_payload=response_payload).get_json()
+    assert created["response_payload"]["answer"]["blocks"][1]["columns"] == ["First Name", "Occupation", "Employer"]
+    assert created["response_payload"]["answer"]["blocks"][1]["rows"][0][0] == "Person0"
+    assert created["response_payload"]["result"]["total_matches"] == 2
+
+    fetched = client.get(f"/api/insights/{created['insight_id']}").get_json()
+    assert fetched["response_payload"] == created["response_payload"]
+
+    listed = client.get("/api/insights").get_json()["insights"][0]
+    assert listed["response_payload"] == created["response_payload"]
 
 
 def test_create_insight_generates_title_from_question_when_missing(client):

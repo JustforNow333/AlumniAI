@@ -228,8 +228,23 @@ function opLabel(operation) {
   if (operation.type === "top_rows") return `top_rows · ${operation.ascending ? "asc" : "desc"}`;
   return operation.type;
 }
-function adaptAnswer(operation, result, answer, ds, answerText) {
+function buildAskResponsePayload(data, structured, operation, result, answerText, ds) {
+  const payload = {
+    dataset_id: cleanText((data && data.dataset_id) || (ds && ds.dataset_id) || ""),
+    question: cleanText(data && data.question),
+    answer: structured,
+    answer_text: cleanText(answerText || (structured && structured.summary) || ""),
+    operation: operation || null,
+    result: result || null,
+  };
+  if (data && data.analysis_intent) payload.analysis_intent = data.analysis_intent;
+  if (data && data.analysis_plan) payload.analysis_plan = data.analysis_plan;
+  if (data && Array.isArray(data.operation_results)) payload.operation_results = data.operation_results;
+  return payload;
+}
+function adaptAnswer(operation, result, answer, ds, answerText, data) {
   const structured = sanitizeStructuredAnswer(normalizeStructuredAnswer(answer, answerText), result);
+  const responsePayload = buildAskResponsePayload(data || {}, structured, operation, result, answerText, ds);
   return {
     op: opLabel(operation),
     kind: "structured",
@@ -237,6 +252,7 @@ function adaptAnswer(operation, result, answer, ds, answerText) {
     answer: structured,
     operation,
     result,
+    response_payload: responsePayload,
   };
 }
 function adaptLocalAnswer(message) {
@@ -361,18 +377,38 @@ function insightTextFromAnswer(answer, fallbackText) {
   const text = parts.filter(Boolean).join("\n\n");
   return text || cleanText(fallbackText || "");
 }
+function normalizeInsightResponsePayload(payload, fallbackText) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const result = payload.result || (Array.isArray(payload.operation_results) ? payload.operation_results[0] : null);
+  const answer = sanitizeStructuredAnswer(
+    normalizeStructuredAnswer(payload.answer, payload.answer_text || fallbackText),
+    result
+  );
+  return {
+    ...payload,
+    answer,
+    answer_text: cleanText(payload.answer_text || answer.summary || fallbackText || ""),
+    operation: payload.operation || null,
+    result: result || null,
+  };
+}
 function normalizeInsightEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   const insightId = entry.insight_id || "";
   if (!insightId) return null;
+  const answer = typeof entry.answer === "string" ? entry.answer : cleanText(entry.answer_text || entry.answer || "");
   return {
+    id: entry.id || insightId,
     insight_id: insightId,
     dataset_id: entry.dataset_id || "",
-    dataset_name_snapshot: cleanText(entry.dataset_name_snapshot || "Unknown dataset"),
+    dataset_filename: cleanText(entry.dataset_filename || entry.dataset_name_snapshot || "Unknown dataset"),
+    dataset_name_snapshot: cleanText(entry.dataset_name_snapshot || entry.dataset_filename || "Unknown dataset"),
     dataset_status: entry.dataset_status === "deleted" ? "deleted" : "ready",
     title: cleanText(entry.title || "") || defaultInsightTitle(entry.question),
     question: cleanText(entry.question || ""),
-    answer: typeof entry.answer === "string" ? entry.answer : cleanText(entry.answer || ""),
+    answer,
+    answer_text: answer,
+    response_payload: normalizeInsightResponsePayload(entry.response_payload, answer),
     created_at: entry.created_at || "",
     updated_at: entry.updated_at || "",
     tags: Array.isArray(entry.tags) ? entry.tags.map(cleanText).filter(Boolean) : [],
@@ -394,12 +430,15 @@ async function apiGetInsight(insightId) {
   if (!res.ok) throw new Error(data.error || `Could not load insight (${res.status})`);
   return normalizeInsightEntry(data);
 }
-async function apiSaveInsight({ dataset_id, title, question, answer, tags }) {
+async function apiSaveInsight({ dataset_id, title, question, answer, tags, response_payload }) {
   if (!dataset_id) throw new Error("Cannot save an insight without an active dataset.");
   if (!String(question || "").trim()) throw new Error("Cannot save an insight without the original question.");
   if (!String(answer || "").trim()) throw new Error("Cannot save an insight without a completed answer.");
   const body = { dataset_id, question, answer, title: title || defaultInsightTitle(question) };
   if (Array.isArray(tags) && tags.length) body.tags = tags;
+  if (response_payload && typeof response_payload === "object" && !Array.isArray(response_payload)) {
+    body.response_payload = response_payload;
+  }
   const res = await fetch(base() + "/api/insights", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -431,8 +470,9 @@ async function apiAsk(ds, question) {
     body: JSON.stringify({ dataset_id: ds.dataset_id, question }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) return adaptAnswer(null, null, null, ds, data.error || `Request failed (${res.status})`);
-  return adaptAnswer(data.operation, data.result, data.answer, ds, data.answer_text);
+  const payloadData = { ...data, question: data.question || question };
+  if (!res.ok) return adaptAnswer(null, null, null, ds, data.error || `Request failed (${res.status})`, payloadData);
+  return adaptAnswer(data.operation, data.result, data.answer, ds, data.answer_text, payloadData);
 }
 
 /* ---- local fallback (engine.jsx) ---- */
@@ -500,6 +540,8 @@ window.Alumni = {
     linkedInHref,
     isDebugColumn,
     sanitizeStructuredAnswer,
+    normalizeInsightResponsePayload,
+    buildAskResponsePayload,
     normalizeDatasetEntry,
     normalizeInsightEntry,
     defaultInsightTitle,
