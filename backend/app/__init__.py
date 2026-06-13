@@ -6,6 +6,7 @@ from flask_cors import CORS
 
 from app.routes.chat_routes import chat_bp
 from app.routes.dataset_routes import dataset_bp
+from app.routes.history_routes import history_bp
 from app.routes.insight_routes import insight_bp
 from app.routes.upload_routes import upload_bp
 from app.utils.file_utils import ensure_upload_folder
@@ -22,6 +23,7 @@ def create_app():
     app.config["UPLOAD_FOLDER"] = upload_folder
     app.config["DATA_FOLDER"] = data_folder
     app.config["DATASET_REGISTRY_PATH"] = os.path.join(data_folder, "datasets.json")
+    app.config["HISTORY_REGISTRY_PATH"] = os.path.join(data_folder, "history.json")
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
     app.config["JSON_SORT_KEYS"] = False
 
@@ -47,6 +49,7 @@ def create_app():
     app.register_blueprint(upload_bp)
     app.register_blueprint(dataset_bp)
     app.register_blueprint(insight_bp)
+    app.register_blueprint(history_bp)
     app.register_blueprint(chat_bp)
 
     @app.get("/api/health")

@@ -1,7 +1,7 @@
 """Saved insights: manually saved AI answers tied to a dataset.
 
-Insights are snapshots — the answer is never recomputed, and nothing is saved
-automatically (history is a separate, future feature).
+Insights are snapshots — the answer is never recomputed. History is separate
+automatic logging; insights remain manually curated.
 """
 
 from io import BytesIO
@@ -160,6 +160,10 @@ def test_create_insight_validation_errors_are_clean(client):
     unknown_dataset = save_insight(client, "not-a-dataset")
     assert unknown_dataset.status_code == 404
     assert "Dataset not found" in unknown_dataset.get_json()["error"]
+
+    bad_response_payload = save_insight(client, dataset_id, response_payload=["not", "an", "object"])
+    assert bad_response_payload.status_code == 400
+    assert "response_payload" in bad_response_payload.get_json()["error"]
 
 
 def test_list_insights_newest_first(client):

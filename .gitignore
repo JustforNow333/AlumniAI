@@ -93,6 +93,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local AI agent/tool metadata
+.agents/
+.codex/
+
 # =========================
 # Logs
 # =========================

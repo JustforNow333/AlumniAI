@@ -609,6 +609,259 @@ test("ask renders non-tech industry people results generically with clean stats"
   ]);
 });
 
+test("history() fetches the history list and normalizes stored response payloads", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          history: [
+            {
+              history_id: "history-1",
+              dataset_id: "dataset-1",
+              dataset_filename: "alumni.csv",
+              title: "Consulting alumni",
+              question: "Who works in consulting?",
+              answer_text: "12 alumni match consulting.",
+              status: "success",
+              created_at: "2026-06-13T10:00:00",
+              response_payload: {
+                answer: {
+                  title: "Consulting alumni",
+                  summary: "12 alumni match consulting.",
+                  blocks: [
+                    { type: "metrics", items: [{ label: "Alumni matching criteria", value: "12" }] },
+                    {
+                      type: "table",
+                      columns: ["First Name", "LastName", "Occupation", "Employer", "internal_reason"],
+                      rows: [["Ada", "Lovelace", "Consultant", "McKinsey", "debug"]],
+                    },
+                  ],
+                  followups: [],
+                },
+                result: {
+                  intent: "people_filter",
+                  entity: "alumni",
+                  total_matches: 12,
+                  visible_columns: ["First Name", "Last Name", "Occupation", "Employer"],
+                },
+              },
+            },
+          ],
+        }),
+      };
+    },
+  });
+
+  const history = await Alumni.history();
+  const table = history[0].response_payload.answer.blocks.find(block => block.type === "table");
+
+  assert.equal(calls[0].url, "/api/history");
+  assert.equal(history[0].history_id, "history-1");
+  assert.equal(history[0].title, "Consulting alumni");
+  assert.deepEqual(plain(table.columns), ["First Name", "Last Name", "Occupation", "Employer"]);
+  assert.deepEqual(plain(table.rows), [["Ada", "Lovelace", "Consultant", "McKinsey"]]);
+});
+
+test("history() rejects with the backend error message when the list fails", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: "History registry is invalid JSON." }),
+    }),
+  });
+
+  await assert.rejects(
+    () => Alumni.history(),
+    /History registry is invalid JSON\./
+  );
+});
+
+test("history item helpers use the expected backend routes", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "http://localhost:5000" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          history_id: "history 1",
+          dataset_id: "dataset-1",
+          dataset_filename: "alumni.csv",
+          question: "Question?",
+          answer_text: "Answer.",
+          response_payload: { answer: { summary: "Answer.", blocks: [], followups: [] } },
+        }),
+      };
+    },
+  });
+
+  await Alumni.historyItem("history 1");
+  await Alumni.createHistoryItem({ dataset_id: "dataset-1", question: "Question?", answer_text: "Answer." });
+  await Alumni.deleteHistoryItem("history 1");
+  await Alumni.clearHistory();
+
+  assert.equal(calls[0].url, "http://localhost:5000/api/history/history%201");
+  assert.equal(calls[1].url, "http://localhost:5000/api/history");
+  assert.equal(calls[1].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].options.body), { dataset_id: "dataset-1", question: "Question?", answer_text: "Answer." });
+  assert.equal(calls[2].url, "http://localhost:5000/api/history/history%201");
+  assert.equal(calls[2].options.method, "DELETE");
+  assert.equal(calls[3].url, "http://localhost:5000/api/history");
+  assert.equal(calls[3].options.method, "DELETE");
+});
+
+test("history mutation helpers surface backend validation errors", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => ({
+      ok: false,
+      status: options && options.method === "DELETE" ? 404 : 400,
+      json: async () => ({ error: options && options.method === "DELETE" ? "History item not found." : "question must not be empty." }),
+    }),
+  });
+
+  await assert.rejects(
+    () => Alumni.createHistoryItem({ dataset_id: "dataset-1", question: "", answer_text: "Answer." }),
+    /question must not be empty/
+  );
+  await assert.rejects(
+    () => Alumni.deleteHistoryItem("missing-history"),
+    /History item not found/
+  );
+  await assert.rejects(
+    () => Alumni.clearHistory(),
+    /History item not found/
+  );
+});
+
+test("saveHistoryAsInsight sends the history snapshot to the saved insight API", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          insight_id: "insight-1",
+          dataset_id: "dataset-1",
+          dataset_name_snapshot: "alumni.csv",
+          title: "Consulting alumni",
+          question: "Who works in consulting?",
+          answer: "12 alumni match consulting.",
+          response_payload: { answer: { summary: "12 alumni match consulting.", blocks: [], followups: [] } },
+        }),
+      };
+    },
+  });
+
+  const responsePayload = {
+    answer: {
+      title: "Consulting alumni",
+      summary: "12 alumni match consulting.",
+      blocks: [{ type: "metrics", items: [{ label: "Alumni matching criteria", value: "12" }] }],
+      followups: [],
+    },
+    result: { intent: "people_filter", entity: "alumni", total_matches: 12 },
+  };
+  await Alumni.saveHistoryAsInsight({
+    history_id: "history-1",
+    dataset_id: "dataset-1",
+    dataset_filename: "alumni.csv",
+    title: "Consulting alumni",
+    question: "Who works in consulting?",
+    answer_text: "12 alumni match consulting.",
+    response_payload: responsePayload,
+  });
+
+  assert.equal(calls[0].url, "/api/insights");
+  assert.equal(calls[0].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    dataset_id: "dataset-1",
+    title: "Consulting alumni",
+    question: "Who works in consulting?",
+    answer: "12 alumni match consulting.",
+    response_payload: {
+      ...responsePayload,
+      answer_text: "12 alumni match consulting.",
+      operation: null,
+    },
+  });
+});
+
+test("saveHistoryAsInsight rejects unusable history items before fetch", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+
+  await assert.rejects(
+    () => Alumni.saveHistoryAsInsight({ question: "Question?", answer_text: "Answer." }),
+    /Cannot save this history item/
+  );
+});
+
+test("history helpers are inert outside API mode", async () => {
+  const Alumni = loadApi({
+    config: { useApi: false, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+
+  assert.deepEqual(plain(await Alumni.history()), []);
+  await assert.rejects(() => Alumni.historyItem("id"), /History requires API mode/);
+  await assert.rejects(() => Alumni.createHistoryItem({}), /History requires API mode/);
+  await assert.rejects(() => Alumni.deleteHistoryItem("id"), /History requires API mode/);
+  await assert.rejects(() => Alumni.clearHistory(), /History requires API mode/);
+});
+
+test("normalizeHistoryEntry tolerates missing fields and malformed payloads", () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+  });
+
+  assert.equal(Alumni._test.normalizeHistoryEntry(null), null);
+  assert.equal(Alumni._test.normalizeHistoryEntry({ question: "No id" }), null);
+
+  const item = Alumni._test.normalizeHistoryEntry({
+    id: "legacy-id",
+    question: "  What changed? ",
+    answer: "Legacy answer",
+    response_payload: ["bad"],
+    dataset_status: "unexpected",
+  });
+
+  assert.deepEqual(plain(item), {
+    id: "legacy-id",
+    history_id: "legacy-id",
+    dataset_id: "",
+    dataset_filename: "Unknown dataset",
+    dataset_status: "ready",
+    title: "What changed",
+    question: "What changed?",
+    answer_text: "Legacy answer",
+    answer: "Legacy answer",
+    response_payload: null,
+    status: "success",
+    created_at: "",
+    updated_at: "",
+    metadata: {},
+  });
+});
+
 test("datasets() fetches the library list and normalizes entries", async () => {
   const calls = [];
   const Alumni = loadApi({

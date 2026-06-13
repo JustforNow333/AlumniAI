@@ -392,6 +392,9 @@ function normalizeInsightResponsePayload(payload, fallbackText) {
     result: result || null,
   };
 }
+function normalizeHistoryResponsePayload(payload, fallbackText) {
+  return normalizeInsightResponsePayload(payload, fallbackText);
+}
 function normalizeInsightEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   const insightId = entry.insight_id || "";
@@ -412,6 +415,28 @@ function normalizeInsightEntry(entry) {
     created_at: entry.created_at || "",
     updated_at: entry.updated_at || "",
     tags: Array.isArray(entry.tags) ? entry.tags.map(cleanText).filter(Boolean) : [],
+    metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+  };
+}
+function normalizeHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const historyId = entry.history_id || entry.id || "";
+  if (!historyId) return null;
+  const answer = typeof entry.answer_text === "string" ? entry.answer_text : cleanText(entry.answer || "");
+  return {
+    id: historyId,
+    history_id: historyId,
+    dataset_id: entry.dataset_id || "",
+    dataset_filename: cleanText(entry.dataset_filename || "Unknown dataset"),
+    dataset_status: entry.dataset_status === "deleted" ? "deleted" : "ready",
+    title: cleanText(entry.title || "") || defaultInsightTitle(entry.question),
+    question: cleanText(entry.question || ""),
+    answer_text: answer,
+    answer,
+    response_payload: normalizeHistoryResponsePayload(entry.response_payload, answer),
+    status: cleanText(entry.status || "success") || "success",
+    created_at: entry.created_at || "",
+    updated_at: entry.updated_at || "",
     metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
   };
 }
@@ -463,6 +488,54 @@ async function apiDeleteInsight(insightId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Delete failed (${res.status})`);
   return data;
+}
+async function apiHistory() {
+  const res = await fetch(base() + "/api/history");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not load history (${res.status})`);
+  const list = Array.isArray(data.history) ? data.history : Array.isArray(data) ? data : [];
+  return list.map(normalizeHistoryEntry).filter(Boolean);
+}
+async function apiGetHistoryItem(historyId) {
+  if (!historyId) throw new Error("Cannot load history because history_id is missing.");
+  const res = await fetch(base() + `/api/history/${encodeURIComponent(historyId)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not load history item (${res.status})`);
+  return normalizeHistoryEntry(data);
+}
+async function apiCreateHistoryItem(payload) {
+  const body = payload && typeof payload === "object" ? payload : {};
+  const res = await fetch(base() + "/api/history", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `History save failed (${res.status})`);
+  return normalizeHistoryEntry(data);
+}
+async function apiDeleteHistoryItem(historyId) {
+  if (!historyId) throw new Error("Cannot delete because history_id is missing.");
+  const res = await fetch(base() + `/api/history/${encodeURIComponent(historyId)}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Delete failed (${res.status})`);
+  return data;
+}
+async function apiClearHistory() {
+  const res = await fetch(base() + "/api/history", { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Clear history failed (${res.status})`);
+  return data;
+}
+async function apiSaveHistoryAsInsight(historyItem) {
+  const item = normalizeHistoryEntry(historyItem);
+  if (!item) throw new Error("Cannot save this history item.");
+  return apiSaveInsight({
+    dataset_id: item.dataset_id,
+    title: item.title || defaultInsightTitle(item.question),
+    question: item.question,
+    answer: item.answer_text,
+    response_payload: item.response_payload,
+  });
 }
 async function apiAsk(ds, question) {
   const res = await fetch(base() + "/api/ask", {
@@ -526,6 +599,27 @@ window.Alumni = {
     if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
     return apiDeleteInsight(insightId);
   },
+  history() { return cfg().useApi ? apiHistory() : Promise.resolve([]); },
+  historyItem(historyId) {
+    if (!cfg().useApi) return Promise.reject(new Error("History requires API mode."));
+    return apiGetHistoryItem(historyId);
+  },
+  createHistoryItem(payload) {
+    if (!cfg().useApi) return Promise.reject(new Error("History requires API mode."));
+    return apiCreateHistoryItem(payload);
+  },
+  deleteHistoryItem(historyId) {
+    if (!cfg().useApi) return Promise.reject(new Error("History requires API mode."));
+    return apiDeleteHistoryItem(historyId);
+  },
+  clearHistory() {
+    if (!cfg().useApi) return Promise.reject(new Error("History requires API mode."));
+    return apiClearHistory();
+  },
+  saveHistoryAsInsight(historyItem) {
+    if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
+    return apiSaveHistoryAsInsight(historyItem);
+  },
   helpers: {
     canonicalDisplayColumn,
     isLinkedInColumn,
@@ -541,9 +635,11 @@ window.Alumni = {
     isDebugColumn,
     sanitizeStructuredAnswer,
     normalizeInsightResponsePayload,
+    normalizeHistoryResponsePayload,
     buildAskResponsePayload,
     normalizeDatasetEntry,
     normalizeInsightEntry,
+    normalizeHistoryEntry,
     defaultInsightTitle,
     insightTextFromAnswer,
   },

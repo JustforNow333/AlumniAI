@@ -79,6 +79,22 @@ function formatUploadDate(iso) {
     return String(iso);
   }
 }
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  try {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso);
+    return date.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    return String(iso);
+  }
+}
 
 /* ---------- answer renderers ---------- */
 function answerText(value) {
@@ -391,8 +407,7 @@ function DataPanel({ ds, preview = { columns: [], rows: [], loading: false, erro
   );
 }
 function Rail({ ds, view, onNavigate, onNewAnalysis }) {
-  // Conversations, Datasets, and Saved insights are live views; History stays a placeholder.
-  const nav = [["chat", "Conversations", "chat"], ["database", "Datasets", "datasets"], ["bookmark", "Saved insights", "insights"], ["history", "History", null]];
+  const nav = [["chat", "Conversations", "chat"], ["database", "Datasets", "datasets"], ["bookmark", "Saved insights", "insights"], ["history", "History", "history"]];
   return (
     <div className="col" style={{ width: 212, flex: "none", borderRight: "1px solid var(--border)", background: "var(--surface-2)", padding: 14, gap: 6 }}>
       <button className="btn btn-primary" style={{ width: "100%", marginBottom: 8 }} onClick={onNewAnalysis}><Icon name="plus" size={15} /> New analysis</button>
@@ -670,6 +685,182 @@ function InsightsLibrary({ insights, loading, error, activeDatasetId, datasets, 
   );
 }
 
+/* ---------- history ---------- */
+function historyMetricPreview(item) {
+  const payload = item && item.response_payload;
+  const answer = payload && payload.answer;
+  const blocks = answer && Array.isArray(answer.blocks) ? answer.blocks : [];
+  const metrics = blocks.find(block => block && block.type === "metrics" && Array.isArray(block.items));
+  if (!metrics) return [];
+  return metrics.items.slice(0, 3).map(metric => ({
+    label: String(metric.label || ""),
+    value: String(metric.value || ""),
+  })).filter(metric => metric.label || metric.value);
+}
+function HistoryDetail({ item, datasetAvailable, isActiveDataset, onBack, onSaveAsInsight, onDelete }) {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const hasFullResponse = !!(item.response_payload && typeof item.response_payload === "object");
+
+  const save = () => {
+    if (saving || saved) return;
+    setSaving(true);
+    setError("");
+    onSaveAsInsight(item)
+      .then(() => { setSaving(false); setSaved(true); })
+      .catch(e => { setSaving(false); setError(e.message || String(e)); });
+  };
+
+  return (
+    <div className="col" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 14, maxWidth: 900, width: "100%" }}>
+      <div className="row" style={{ alignItems: "center", gap: 10 }}>
+        <button className="btn btn-ghost" style={{ flex: "none" }} onClick={onBack}>← All history</button>
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-ghost" style={{ flex: "none" }} disabled={saving || saved} onClick={save}>
+          <Icon name="bookmark" size={14} /> {saved ? "Saved ✓" : saving ? "Saving…" : "Save as insight"}
+        </button>
+        <button className="btn btn-ghost" style={{ flex: "none", color: "var(--warn)" }} onClick={() => onDelete(item)}>Delete</button>
+      </div>
+      <div className="panel col" style={{ padding: "20px 22px", gap: 14 }} data-history-full-response="true">
+        <div className="col" style={{ gap: 6 }}>
+          <span style={{ fontSize: 17, fontWeight: 800 }}>{item.title}</span>
+          <div className="row gap8" style={{ alignItems: "center", flexWrap: "wrap" }}>
+            <span className="chip" style={{ flex: "none" }}>
+              <Icon name="file" size={12} /> {item.dataset_filename}
+            </span>
+            {isActiveDataset ? (
+              <span className="chip chip-primary" style={{ flex: "none" }}>Dataset is active</span>
+            ) : datasetAvailable ? (
+              <span className="chip" style={{ flex: "none" }}>Dataset available</span>
+            ) : (
+              <span className="chip" style={{ flex: "none", color: "var(--warn)", borderColor: "var(--warn)" }}>Dataset deleted</span>
+            )}
+            {item.created_at && <span style={{ fontSize: 12, color: "var(--text-3)" }}>Asked {formatTimestamp(item.created_at)}</span>}
+          </div>
+        </div>
+        <div className="divider" />
+        <div className="col" style={{ gap: 4 }}>
+          <span className="kicker">Question</span>
+          <span style={{ fontSize: 13.5 }}>{item.question}</span>
+        </div>
+        {hasFullResponse ? (
+          <DatasetResponseView response={item.response_payload} fallbackText={item.answer_text} />
+        ) : (
+          <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{item.answer_text}</div>
+        )}
+        {error && <div style={{ color: "var(--warn)", fontSize: 12 }}>Save failed: {error}</div>}
+      </div>
+    </div>
+  );
+}
+function HistoryLibrary({ historyItems, loading, error, activeDatasetId, datasets, selectedHistoryId, onSelectHistory, onDelete, onClear, onSaveAsInsight }) {
+  const [savingIds, setSavingIds] = useState({});
+  const [savedIds, setSavedIds] = useState({});
+  const [saveError, setSaveError] = useState("");
+  const datasetIds = new Set((datasets || []).map(d => d.dataset_id));
+  const datasetAvailable = (item) => item.dataset_status !== "deleted" && datasetIds.has(item.dataset_id);
+
+  const selected = historyItems.find(item => item.history_id === selectedHistoryId);
+  if (selected) {
+    return (
+      <HistoryDetail
+        item={selected}
+        datasetAvailable={datasetAvailable(selected)}
+        isActiveDataset={selected.dataset_id === activeDatasetId}
+        onBack={() => onSelectHistory(null)}
+        onDelete={onDelete}
+        onSaveAsInsight={onSaveAsInsight}
+      />
+    );
+  }
+
+  const save = (item) => {
+    if (savingIds[item.history_id] || savedIds[item.history_id]) return;
+    setSavingIds(state => ({ ...state, [item.history_id]: true }));
+    setSaveError("");
+    onSaveAsInsight(item)
+      .then(() => {
+        setSavingIds(state => ({ ...state, [item.history_id]: false }));
+        setSavedIds(state => ({ ...state, [item.history_id]: true }));
+      })
+      .catch(e => {
+        setSavingIds(state => ({ ...state, [item.history_id]: false }));
+        setSaveError(`Save failed: ${e.message || e}`);
+      });
+  };
+
+  return (
+    <div className="col" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 14, maxWidth: 900, width: "100%" }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <div className="col" style={{ gap: 3 }}>
+          <span style={{ fontSize: 16, fontWeight: 800 }}>History</span>
+          <span className="kicker">Recent dataset analyses</span>
+        </div>
+        <button className="btn btn-ghost" disabled={!historyItems.length} onClick={onClear}>
+          <Icon name="history" size={14} /> Clear history
+        </button>
+      </div>
+      {(error || saveError) && (
+        <div className="row gap8" style={{ color: "var(--warn)", fontSize: 12.5, fontWeight: 500 }}>
+          <Icon name="bolt" size={14} />{error || saveError}
+        </div>
+      )}
+      {loading ? (
+        <div style={{ color: "var(--text-3)", fontSize: 12.5 }}>Loading history…</div>
+      ) : !historyItems.length ? (
+        <div className="panel col" style={{ padding: "34px 24px", alignItems: "center", gap: 8 }}>
+          <Icon name="history" size={22} style={{ color: "var(--text-3)" }} />
+          <span style={{ fontSize: 13.5, fontWeight: 700 }}>No history yet</span>
+          <span style={{ fontSize: 12.5, color: "var(--text-3)" }}>Ask a question about a dataset and it will appear here.</span>
+        </div>
+      ) : (
+        historyItems.map(item => {
+          const metrics = historyMetricPreview(item);
+          return (
+            <div
+              key={item.history_id}
+              className="panel row"
+              data-history-id={item.history_id}
+              style={{ padding: "13px 16px", gap: 12, alignItems: "flex-start" }}
+            >
+              <Icon name="history" size={16} style={{ color: "var(--primary)", flex: "none", marginTop: 2 }} />
+              <div className="col" style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <div className="row gap8" style={{ alignItems: "center", minWidth: 0, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.title}>{item.title}</span>
+                  <span className="chip" style={{ flex: "none", fontSize: 11 }}>{item.dataset_filename}</span>
+                  {item.dataset_id === activeDatasetId ? (
+                    <span className="chip chip-primary" style={{ flex: "none", fontSize: 11 }}>Active</span>
+                  ) : datasetAvailable(item) ? (
+                    <span className="chip" style={{ flex: "none", fontSize: 11 }}>Dataset available</span>
+                  ) : (
+                    <span className="chip" style={{ flex: "none", fontSize: 11, color: "var(--warn)", borderColor: "var(--warn)" }}>Dataset deleted</span>
+                  )}
+                </div>
+                <span style={{ fontSize: 12.5, color: "var(--text-2)", fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.question}</span>
+                <span style={{ fontSize: 12, color: "var(--text-3)" }}>{insightPreviewText(item.answer_text)}</span>
+                {metrics.length > 0 && (
+                  <div className="row gap6" style={{ flexWrap: "wrap" }}>
+                    {metrics.map(metric => (
+                      <span key={`${metric.label}:${metric.value}`} className="chip" style={{ flex: "none", fontSize: 11 }}>{metric.label}: {metric.value}</span>
+                    ))}
+                  </div>
+                )}
+                {item.created_at && <span style={{ fontSize: 11, color: "var(--text-3)" }}>Asked {formatTimestamp(item.created_at)}</span>}
+              </div>
+              <button className="btn btn-ghost" style={{ flex: "none" }} onClick={() => onSelectHistory(item.history_id)}>Open</button>
+              <button className="btn btn-ghost" style={{ flex: "none" }} disabled={savingIds[item.history_id] || savedIds[item.history_id]} onClick={() => save(item)}>
+                <Icon name="bookmark" size={13} /> {savedIds[item.history_id] ? "Saved" : savingIds[item.history_id] ? "Saving…" : "Save as insight"}
+              </button>
+              <button className="btn btn-ghost" style={{ flex: "none", color: "var(--warn)" }} onClick={() => onDelete(item)}>Delete</button>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 /* ---------- composer ---------- */
 function Composer({ onSend, busy, suggestions, showSugg }) {
   const [val, setVal] = useState("");
@@ -752,7 +943,7 @@ function UploadView({ onLoad, loadError, theme, onToggle }) {
 }
 
 /* ---------- workspace view ---------- */
-function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalysis, datasets, datasetsError, onSelectDataset, onRenameDataset, onDeleteDataset, onUpload, insights, insightsLoading, insightsError, selectedInsightId, onSelectInsight, onSaveInsight, onRenameInsight, onDeleteInsight, onUseInsightDataset }) {
+function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalysis, datasets, datasetsError, onSelectDataset, onRenameDataset, onDeleteDataset, onUpload, insights, insightsLoading, insightsError, selectedInsightId, onSelectInsight, onSaveInsight, onRenameInsight, onDeleteInsight, onUseInsightDataset, historyItems, historyLoading, historyError, selectedHistoryId, onSelectHistory, onDeleteHistory, onClearHistory, onSaveHistoryAsInsight }) {
   const [messages, setMessages] = useState(() => [{ role: "ai", kind: "help", op: null,
     text: `Loaded **${ds.name}** — ${ds.rows_n.toLocaleString()} rows across ${ds.cols_n} columns. Ask me anything, or try one of the suggestions below.` }]);
   const [busy, setBusy] = useState(false);
@@ -851,6 +1042,19 @@ function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalys
               onDelete={onDeleteInsight}
               onUseDataset={onUseInsightDataset}
             />
+          ) : view === "history" ? (
+            <HistoryLibrary
+              historyItems={historyItems}
+              loading={historyLoading}
+              error={historyError}
+              activeDatasetId={ds && ds.dataset_id}
+              datasets={datasets}
+              selectedHistoryId={selectedHistoryId}
+              onSelectHistory={onSelectHistory}
+              onDelete={onDeleteHistory}
+              onClear={onClearHistory}
+              onSaveAsInsight={onSaveHistoryAsInsight}
+            />
           ) : (
             <React.Fragment>
               <div ref={scrollRef} className="col" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 28, overflowY: "visible" }}>
@@ -891,6 +1095,10 @@ function App() {
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState("");
   const [selectedInsightId, setSelectedInsightId] = useState(null);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [selectedHistoryId, setSelectedHistoryId] = useState(null);
   const loadSeq = useRef(0);
   useEffect(() => { try { localStorage.setItem("alumniTheme", theme); } catch (e) {} }, [theme]);
   const toggle = () => setTheme(t => t === "light" ? "dark" : "light");
@@ -969,8 +1177,25 @@ function App() {
     return () => { cancelled = true; };
   }, [view, apiMode]);
 
+  useEffect(() => {
+    if (!apiMode || view !== "history") return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    window.Alumni.history()
+      .then(list => { if (!cancelled) { setHistoryItems(list); setHistoryError(""); } })
+      .catch(e => { if (!cancelled) setHistoryError(`Could not load history: ${e.message || e}`); })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [view, apiMode]);
+
   const saveInsight = async (payload) => {
     const created = await window.Alumni.saveInsight(payload);
+    setInsights(list => [created, ...list.filter(i => i.insight_id !== created.insight_id)]);
+    return created;
+  };
+
+  const saveHistoryAsInsight = async (item) => {
+    const created = await window.Alumni.saveHistoryAsInsight(item);
     setInsights(list => [created, ...list.filter(i => i.insight_id !== created.insight_id)]);
     return created;
   };
@@ -1013,6 +1238,32 @@ function App() {
     }
     setInsightsError("");
     selectDataset(entry);
+  };
+
+  const deleteHistory = async (item) => {
+    if (!window.confirm(`Delete history item "${item.title}"? This cannot be undone.`)) return;
+    try {
+      await window.Alumni.deleteHistoryItem(item.history_id);
+    } catch (e) {
+      setHistoryError(`Delete failed: ${e.message || e}`);
+      return;
+    }
+    setHistoryError("");
+    setHistoryItems(list => list.filter(historyItem => historyItem.history_id !== item.history_id));
+    setSelectedHistoryId(current => (current === item.history_id ? null : current));
+  };
+
+  const clearHistory = async () => {
+    if (!window.confirm("Clear all history? This cannot be undone.")) return;
+    try {
+      await window.Alumni.clearHistory();
+    } catch (e) {
+      setHistoryError(`Clear history failed: ${e.message || e}`);
+      return;
+    }
+    setHistoryError("");
+    setHistoryItems([]);
+    setSelectedHistoryId(null);
   };
 
   const load = async (file) => {
@@ -1131,6 +1382,14 @@ function App() {
         onRenameInsight={renameInsight}
         onDeleteInsight={deleteInsight}
         onUseInsightDataset={useInsightDataset}
+        historyItems={historyItems}
+        historyLoading={historyLoading}
+        historyError={historyError}
+        selectedHistoryId={selectedHistoryId}
+        onSelectHistory={setSelectedHistoryId}
+        onDeleteHistory={deleteHistory}
+        onClearHistory={clearHistory}
+        onSaveHistoryAsInsight={saveHistoryAsInsight}
       />
     : <UploadView onLoad={load} loadError={error || datasetsError} theme={theme} onToggle={toggle} />;
 }

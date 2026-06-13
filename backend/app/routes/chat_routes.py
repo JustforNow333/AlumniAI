@@ -6,6 +6,7 @@ from app.services.analysis_toolkit import build_dataset_context
 from app.services.answer_presenter import planner_failure_answer, present_answer
 from app.services.column_resolver import resolve_person_columns
 from app.services.dataset_store import DatasetStoreError, load_dataset_dataframe
+from app.services.history_store import HistoryStoreError, create_history_item
 from app.services.industry_matching import debug_classify_person
 from app.services.spreadsheet_service import to_json_safe
 
@@ -58,21 +59,39 @@ def ask_dataset():
     operation = plan["operations"][0] if plan.get("operations") else None
     result = operation_results[0] if operation_results else None
 
-    return jsonify(
-        to_json_safe(
-            {
-                "dataset_id": dataset_id,
-                "question": question_text,
-                "answer": answer,
-                "answer_text": answer.get("summary", "") if isinstance(answer, dict) else str(answer),
-                "operation": operation,
-                "result": result,
-                "analysis_intent": analysis_intent,
-                "analysis_plan": plan,
-                "operation_results": operation_results,
+    answer_text = answer.get("summary", "") if isinstance(answer, dict) else str(answer)
+    response_payload = {
+        "dataset_id": dataset_id,
+        "question": question_text,
+        "answer": answer,
+        "answer_text": answer_text,
+        "operation": operation,
+        "result": result,
+        "analysis_intent": analysis_intent,
+        "analysis_plan": plan,
+        "operation_results": operation_results,
+    }
+    response_body = dict(response_payload)
+
+    if _should_record_history(answer, answer_text, plan, operation_results):
+        try:
+            history_item = create_history_item(
+                dataset_id=dataset_id,
+                dataset_metadata=metadata,
+                question=question_text,
+                answer_text=answer_text,
+                response_payload=response_payload,
+                metadata=_history_metadata(metadata, result, operation_results),
+            )
+            response_body["history_item"] = {
+                "id": history_item.get("history_id"),
+                "history_id": history_item.get("history_id"),
+                "created_at": history_item.get("created_at"),
             }
-        )
-    )
+        except HistoryStoreError:
+            pass
+
+    return jsonify(to_json_safe(response_body))
 
 
 @chat_bp.get("/debug/classify-row")
@@ -136,3 +155,42 @@ def debug_classify_row():
             }
         )
     )
+
+
+def _should_record_history(answer, answer_text, plan, operation_results):
+    if not str(answer_text or "").strip():
+        return False
+    title = str(answer.get("title") or "") if isinstance(answer, dict) else ""
+    if title in {"Analysis Plan Error", "Analysis Error", "Analysis Not Run"}:
+        return False
+    if not isinstance(plan, dict) or not plan.get("operations"):
+        return False
+    ok_results = [
+        result
+        for result in operation_results
+        if isinstance(result, dict) and result.get("status") == "ok"
+    ]
+    return bool(ok_results)
+
+
+def _history_metadata(dataset_metadata, result, operation_results):
+    metadata = {}
+    if isinstance(dataset_metadata, dict):
+        if dataset_metadata.get("row_count") is not None:
+            metadata["row_count"] = dataset_metadata.get("row_count")
+        if dataset_metadata.get("column_count") is not None:
+            metadata["column_count"] = dataset_metadata.get("column_count")
+
+    searched_columns = []
+    for source in [result, *(operation_results or [])]:
+        if not isinstance(source, dict):
+            continue
+        values = source.get("search_columns") or source.get("searched_columns")
+        if not values and isinstance(source.get("metrics"), dict):
+            values = source["metrics"].get("searched_columns")
+        if isinstance(values, list):
+            searched_columns.extend(str(value) for value in values if str(value).strip())
+    if searched_columns:
+        metadata["searched_columns"] = list(dict.fromkeys(searched_columns))
+
+    return metadata
