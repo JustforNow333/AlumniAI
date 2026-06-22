@@ -543,3 +543,67 @@ def test_failed_filter_does_not_return_unfiltered_rows():
     )
     assert all(block["type"] != "table" for block in answer["blocks"])
     assert "No valid searchable columns" in answer["summary"]
+
+
+def test_filter_missing_returns_matching_rows_not_column_summary():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace", "Katherine"],
+            "Last Name": ["Lovelace", "Hopper", "Johnson"],
+            "Title": ["Engineer", "Scientist", "Manager"],
+            "Employer": ["Analytical Engines", "Navy", "Google"],
+            "LinkedIn URL": ["", "https://linkedin.com/in/grace", None],
+        }
+    )
+
+    result = execute_operation(
+        df,
+        {
+            "type": "filter_missing",
+            "params": {
+                "column": "linkedin_url",
+                "return_columns": ["first_name", "last_name", "occupation", "employer"],
+                "limit": 10,
+            },
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["operation_type"] == "filter_missing"
+    assert result["is_filtered"] is True
+    assert result["metrics"]["rows_matched"] == 2
+    assert result["metrics"]["rows_returned"] == 2
+    assert result["columns"] == ["First Name", "Last Name", "Title", "Employer"]
+    assert result["rows"] == [
+        ["Ada", "Lovelace", "Engineer", "Analytical Engines"],
+        ["Katherine", "Johnson", "Manager", "Google"],
+    ]
+
+
+def test_text_search_can_suppress_match_reason_for_clean_person_filters():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace"],
+            "Last Name": ["Lovelace", "Hopper"],
+            "Title": ["Engineer", "Scientist"],
+            "Employer": ["Analytical Engines", "Navy"],
+        }
+    )
+
+    result = execute_operation(
+        df,
+        {
+            "type": "filter_contains",
+            "params": {
+                "column": "employer",
+                "terms": ["Navy"],
+                "display_columns": ["first_name", "last_name", "occupation", "employer"],
+                "include_match_reason": False,
+            },
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["columns"] == ["First Name", "Last Name", "Title", "Employer"]
+    assert "MATCH REASON" not in result["columns"]
+    assert result["rows"] == [["Grace", "Hopper", "Scientist", "Navy"]]

@@ -216,6 +216,23 @@ Completed increments:
    - Frontend UI (`frontend/app.jsx`): the sidebar History item is now live. `HistoryLibrary` shows title "History", subtitle "Recent dataset analyses", empty state "No history yet. Ask a question about a dataset and it will appear here.", cards with question/title, dataset filename/status, timestamp, answer preview, optional metric chips, and Open / Save as insight / Delete actions plus Clear history with confirmation. `HistoryDetail` uses shared `DatasetResponseView` with the stored `response_payload`, so opening history never calls the model, never requires activating the original dataset, and still renders when the source dataset is deleted or inactive.
    - Tests: added `backend/tests/test_history.py` for create/list/get/delete, manual validation failures, clear-all behavior, invalid registry errors, malformed old records, exact response-payload preservation, restart/deleted-dataset behavior, automatic ask history creation, no history on ask validation/missing dataset/planner failures, and saving history as an insight. Frontend adapter/source tests cover history API helpers, error surfacing, malformed-entry normalization, empty/list/detail UI wiring, stored-payload rendering through `DatasetResponseView`, delete/clear wiring, and Save as insight payload forwarding. Validation: `./backend/venv/Scripts/python.exe -m pytest -q` passes 271 backend tests; `node --test frontend/tests/*.mjs` passes both frontend test files.
 
+25. Automated answer-quality eval harness
+   - Added `backend/evals/` as a separate non-production eval package. It uses the real Flask test client to upload a sanitized CSV, calls `POST /api/ask`, normalizes the current response shape (`answer`, `answer_text`, `operation`, `result`, `analysis_plan`, and especially `operation_results[*].rows/columns/metrics`), scores the response, and writes both JSON and Markdown reports.
+   - The gold fixture lives at `backend/evals/datasets/synthetic_alumni_500.csv`. Each run creates `backend/evals/generated/synthetic_alumni_500_app_view.csv` from the gold dataframe and removes `expected_industry`, every `expected_*` column, and every `eval_*` column before upload, so the app cannot see the answer key.
+   - Added `backend/evals/scoring.py` with testable helpers for case loading, gold/app-view dataset generation, full-name normalization, response extraction, expected-row computation, precision/recall, hallucination detection, required/forbidden column checks, required/forbidden phrase checks, exact-count checks, and displayed-count consistency checks.
+   - Added `backend/evals/report.py` and `backend/evals/run_evals.py`. Run from `backend/` with `python -m evals.run_evals`; useful filters include `--case-id`, `--category`, `--limit`, `--output`, and `--markdown`. The runner defaults to deterministic mode by disabling the OpenAI client to avoid accidental API spend; pass `--use-live-ai` to evaluate the live model path.
+   - Added 55 initial JSONL cases in `backend/evals/cases.jsonl`: broad industry classification (tech, consulting, banking, finance, healthcare, education, marketing, operations, legal/government), deterministic filters/counts, display-rule checks, messy employer/duplicate-name regressions, and zero-result cases. Industry cases report precision/recall, false positives/negatives, returned/displayed counts, and hallucinations; exact cases compute expected rows directly from the gold CSV.
+   - Added eval docs in `backend/evals/README.md` and a short eval section in `backend/README.md`. Added pytest coverage under `backend/evals/tests/test_evals.py`; root `pytest.ini` now discovers both `backend/tests` and `backend/evals/tests`.
+
+26. Mode-aware eval tracing and classifier evals
+   - `backend/evals/run_evals.py` now supports `--mode offline`, `--mode hybrid`, `--mode classifier-live`, and `--mode smoke-live`; `--use-live-ai` remains a backward-compatible alias for `--mode hybrid`.
+   - Eval cases now include `modes`, `eval_kind`, and `execution` metadata. Deterministic cases can disallow all model calls, broad product cases can allow model calls without requiring them, and live classifier cases can require LLM classifier calls.
+   - Added `backend/evals/tracing.py`, which wraps the configured OpenAI client per case and records `total_model_calls`, `llm_classifier_calls`, final synthesis calls, model names, and call types without changing production code.
+   - Per-case reports now include `used_llm_classifier`, `used_final_model_synthesis`, `answer_source`, `scored_from`, `backend_testing_mode`, `ai_enabled`, and `model_name`.
+   - Summary reports now include total model calls, cases with/without model calls, answer source breakdown, classifier call count, and final synthesis call count.
+   - Added direct classifier eval cases for Spotify, Google, FanAmp, Cogni DAO, Bright Ventures, McKinsey, Goldman Sachs, Capital One, and high-school scenarios. These call the classifier layer directly and score `classification` plus `count_as_match`.
+   - Failure output now includes categories such as `row_selection`, `classification`, `count_mismatch`, `forbidden_columns`, `hallucinated_names`, `response_parsing`, and `execution_behavior`.
+
 Important files:
 
 - `backend/run.py`
@@ -242,6 +259,18 @@ Important files:
 - `backend/app/services/answer_schema.py`
 - `backend/app/services/ai_service.py`
 - `backend/app/utils/file_utils.py`
+- `backend/evals/__init__.py`
+- `backend/evals/cases.jsonl`
+- `backend/evals/run_evals.py`
+- `backend/evals/scoring.py`
+- `backend/evals/report.py`
+- `backend/evals/tracing.py`
+- `backend/evals/README.md`
+- `backend/evals/datasets/synthetic_alumni_500.csv`
+- `backend/evals/generated/synthetic_alumni_500_app_view.csv`
+- `backend/evals/results/latest.json`
+- `backend/evals/results/latest.md`
+- `backend/evals/tests/test_evals.py`
 - `README.md`
 - `backend/README.md`
 - `backend/requirements.txt`

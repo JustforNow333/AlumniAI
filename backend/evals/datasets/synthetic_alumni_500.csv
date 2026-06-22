@@ -1,0 +1,501 @@
+person_id,first_name,last_name,preferred_name,graduation_year,major,employer,title,expected_industry,location,linkedin_url,email,notes
+P0001,Neil,Wusu,Nei,2021,Information Science,Spotify,Head of Growth,Tech,"New York, NY",https://www.linkedin.com/in/neil-wusu-1,neil.wusu@cornell.edu,seeded edge case
+P0002,Sarah,Patel,,2019,English,Westchester High School,Teacher,Education,"White Plains, NY",https://www.linkedin.com/in/sarah-patel-2,sarah.patel12@yahoo.com,seeded edge case
+P0003,Jane,Smith,Jane,2022,Economics,McKinsey & Company,Business Analyst,Consulting,"New York, NY",,jane.smith@gmail.com,seeded edge case
+P0004,Michael,Chen,Mic,2020,Economics,Goldman Sachs,Investment Banking Analyst,Banking,"New York, NY",https://www.linkedin.com/in/michael-chen-4,michael.chen26@yahoo.com,seeded edge case
+P0005,Priya,Shah,Pri,2023,Computer Science,FanAmp,Growth Product Manager,Tech,Remote,https://www.linkedin.com/in/priya-shah-5,priya.shah5@alumni.cornell.edu,seeded edge case
+P0006,George,Lee,,2013,Biology,BlackRock,Portfolio Analyst,Finance,"Boston, MA",https://www.linkedin.com/in/george-lee-6,george.lee6@cornell.edu,
+P0007,Parker,Carter,,2023,Economics,Memorial Sloan Kettering Inc.,Research Assistant,Healthcare,"San Francisco, CA",https://www.linkedin.com/in/parker-carter-7,parker.carter@cornell.edu,
+P0008,Santiago,Campbell,,2013,,KPMG Advisory,Risk Consultant,Consulting,"Washington, DC",https://www.linkedin.com/in/santiago-campbell-8,santiago.campbell8@outlook.com,title/employer should drive classification
+P0009,Yusuf,Moretti,,2024,Government,IBM Consulting,Transformation Consultant,Consulting,Remote,https://www.linkedin.com/in/yusuf-moretti-9,yusuf.moretti73@outlook.com,missing field test
+P0010,Ryan,Khan,,2018,Physics,Rune Technologies,Systems Engineer,Tech,Remote,https://www.linkedin.com/in/ryan-khan-10,ryan.khan10@outlook.com,
+P0011,Aisha,Wusu,,2019,English,Westchester High School,Teacher,Education,"Miami, FL",https://www.linkedin.com/in/aisha-wusu-11,aisha.wusu88@gmail.com,
+P0012,Vivian,Wright,Vivian,2026,Data Science,Memorial Sloan Kettering,Research Assistant,Healthcare,"San Jose, CA",https://www.linkedin.com/in/vivian-wright-12,vivian.wright14@yahoo.com,missing field test
+P0013,Aisha,Mitchell,Ais,2019,Computer Science,Nike,Growth Marketing Analyst,Marketing,"Boston, MA",https://www.linkedin.com/in/aisha-mitchell-13,aisha.mitchell@cornell.edu,ambiguous employer formatting
+P0014,Sam,Murphy,,2020,Business,Ogilvy,Account Strategist,Marketing,"Miami, FL",https://www.linkedin.com/in/sam-murphy-14,sam.murphy@yahoo.com,
+P0015,Liam,Flores,,2015,Statistics,Boston University,Admissions Coordinator,Education,"Seattle, WA",https://www.linkedin.com/in/liam-flores-15,liam.flores@yahoo.com,
+P0016,Layla,Wusu,Layla,2019,Applied Math,MICROSOFT,Cloud Solutions Architect,Tech,"Stamford, CT",https://www.linkedin.com/in/layla-wusu-16,layla.wusu16@yahoo.com,ambiguous employer formatting
+P0017,Olivia,Gonzalez,Olivia,2022,Mechanical Engineering,Teach For America,Corps Member,Education,"San Francisco, CA",https://www.linkedin.com/in/olivia-gonzalez-17,olivia.gonzalez@cornell.edu,ambiguous employer formatting
+P0018,Maya,Shah,,2025,History,Launch Potato,SEO Product Analyst,Tech,"Boston, MA",,maya.shah@yahoo.com,ambiguous employer formatting
+P0019,Nicole,Ramirez,,2026,Industrial and Labor Relations,Rune Technologies,,Tech,"Denver, CO",https://www.linkedin.com/in/nicole-ramirez-19,nicole.ramirez85@yahoo.com,title/employer should drive classification
+P0020,Ethan,Davis,,2020,English,OpenAI,Research Engineer,Tech,"Washington, DC",,ethan.davis@yahoo.com,
+P0021,Henry,Patel,,2021,Physics,KKR ,Private Equity Associate,Finance,"San Jose, CA",https://www.linkedin.com/in/henry-patel-21,henry.patel27@cornell.edu,missing field test
+P0022,Nina,Hill,,2021,Mechanical Engineering,Amass Insights,,Tech,"Seattle, WA",https://www.linkedin.com/in/nina-hill-22,nina.hill@yahoo.com,missing field test
+P0023,Justin,Torres,,2022,English,Target,Operations Manager,Operations,"New York, NY",https://www.linkedin.com/in/justin-torres-23,justin.torres39@yahoo.com,
+P0024,David,Anderson,Dav,2015,Data Science,Target,Operations Manager,Operations,"San Jose, CA",https://www.linkedin.com/in/david-anderson-24,david.anderson12@gmail.com,title/employer should drive classification
+P0025,Alex,Nelson,,2018,History,WPP,Media Planner,Marketing,"New York, NY",https://www.linkedin.com/in/alex-nelson-25,alex.nelson@outlook.com,missing field test
+P0026,Zachary,Taylor,,2015,Statistics,Bridgewater Associates Inc.,Research Associate,Finance,"Boston, MA",https://www.linkedin.com/in/zachary-taylor-26,zachary.taylor53@yahoo.com,ambiguous employer formatting
+P0027,Fatima,Thompson,,2023,Statistics,Target,Operations Manager Intern,Operations,"Miami, FL",https://www.linkedin.com/in/fatima-thompson-27,fatima.thompson@gmail.com,title/employer should drive classification
+P0028,Kevin,Flores,,2016,Economics,Launch Potato,SEO Product Analyst,Tech,"Miami, FL",https://www.linkedin.com/in/kevin-flores-28,kevin.flores52@yahoo.com,
+P0029,Reese,King,,2023,Government,McKinsey & Company,Business Analyst,Consulting,"London, UK",https://www.linkedin.com/in/reese-king-29,reese.king29@yahoo.com,
+P0030,Layla,Wong,Lay,2013,Government,Meta ,Product Manager,Tech,"Dallas, TX",https://www.linkedin.com/in/layla-wong-30,layla.wong30@gmail.com,
+P0031,Claire,Patel,,2023,Business,PwC Strategy&,Management Consultant,Consulting,"Dallas, TX",https://www.linkedin.com/in/claire-patel-31,claire.patel@alumni.cornell.edu,missing field test
+P0032,Yuna,Nowak,,2026,Business,PwC Strategy&,Management Consultant,Consulting,"Seattle, WA",https://www.linkedin.com/in/yuna-nowak-32,yuna.nowak@yahoo.com,ambiguous employer formatting
+P0033,Liam,Jackson,,2026,Physics,mayo clinic,Data Analyst,Healthcare,"Los Angeles, CA",https://www.linkedin.com/in/liam-jackson-33,liam.jackson33@alumni.cornell.edu,ambiguous employer formatting
+P0034,Vivian,Wilson,,2020,Statistics,Google,Software Engineer,Tech,"Boston, MA",https://www.linkedin.com/in/vivian-wilson-34,vivian.wilson86@alumni.cornell.edu,
+P0035,Diego,Walsh,,2019,Data Science,Fidelity Investments,Financial Analyst,Finance,"Austin, TX",https://www.linkedin.com/in/diego-walsh-35,diego.walsh99@cornell.edu,title/employer should drive classification
+P0036,Nathan,Martinez,,2015,Biology,Citadel,Quantitative Developer,Finance,"Chicago, IL",https://www.linkedin.com/in/nathan-martinez-36,nathan.martinez36@gmail.com,missing field test
+P0037,Cameron,Clark,Cameron,2018,Civil Engineering,Point72,Equity Research Analyst,Finance,"New York, NY",https://www.linkedin.com/in/cameron-clark-37,cameron.clark37@cornell.edu,title/employer should drive classification
+P0038,Neha,Nowak,,2022,Biology,Millennium Management,Risk Analyst,Finance,"Washington, DC",https://www.linkedin.com/in/neha-nowak-38,neha.nowak80@outlook.com,
+P0039,Li,Brown,,2015,Industrial and Labor Relations,Tesla,Manufacturing Engineer,Operations,"Atlanta, GA",https://www.linkedin.com/in/li-brown-39,li.brown39@alumni.cornell.edu,missing field test
+P0040,Taylor,Rossi,,2015,Applied Math,Google Inc.,Ads Account Strategist,Marketing,"New York, NY",https://www.linkedin.com/in/taylor-rossi-40,taylor.rossi40@outlook.com,
+P0041,Madison,Allen,,2016,Mechanical Engineering,Two Sigma,Quantitative Researcher,Finance,"Jersey City, NJ",,madison.allen74@cornell.edu,title/employer should drive classification
+P0042,Jamie,Muller,,2021,Mechanical Engineering,Bank of America,Corporate Banking Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/jamie-muller-42,jamie.muller42@cornell.edu,missing field test
+P0043,Megan,Johnson,,2025,Industrial and Labor Relations,DigitalOcean,Cloud Support Engineer,Tech,"Chicago, IL",https://www.linkedin.com/in/megan-johnson-43,megan.johnson43@yahoo.com,
+P0044,Madison,Wong,,2016,Industrial and Labor Relations,Google,Ads Account Strategist,Marketing,"Austin, TX",https://www.linkedin.com/in/madison-wong-44,madison.wong79@yahoo.com,title/employer should drive classification
+P0045,Claire,White,,2026,Data Science,KPMG Advisory,Risk Consultant,Consulting,"Stamford, CT",,claire.white@outlook.com,title/employer should drive classification
+P0046,Yusuf,Ali,Yusuf,2015,Electrical Engineering,Bank of America,Corporate Banking Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/yusuf-ali-46,yusuf.ali46@yahoo.com,title/employer should drive classification
+P0047,Lauren,Rivera,,2023,History,ACLU,Program Associate,Legal/Government,"Washington, DC",https://www.linkedin.com/in/lauren-rivera-47,lauren.rivera36@alumni.cornell.edu,
+P0048,Jae,Torres,,2023,History,ACLU,Program Associate,Legal/Government,"Chicago, IL",https://www.linkedin.com/in/jae-torres-48,jae.torres48@gmail.com,ambiguous employer formatting
+P0049,Sydney,Johnson,Syd,2013,Economics,Fidelity Investments,Financial Analyst,Finance,Remote,https://www.linkedin.com/in/sydney-johnson-49,sydney.johnson81@yahoo.com,
+P0050,Rachel,Hernandez,,2015,English,Adobe,UX Engineer,Tech,Remote,https://www.linkedin.com/in/rachel-hernandez-50,rachel.hernandez39@alumni.cornell.edu,title/employer should drive classification
+P0051,Cameron,Ivanov,,2013,Business,LEK Consulting,Associate Consultant,Consulting,"Austin, TX",https://www.linkedin.com/in/cameron-ivanov-51,cameron.ivanov@gmail.com,title/employer should drive classification
+P0052,Katherine,Nguyen,,2026,Data Science,Barclays Inc.,Sales and Trading Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/katherine-nguyen-52,katherine.nguyen@outlook.com,
+P0053,Sarah,Jackson,,2019,Mechanical Engineering,apple,Machine Learning Engineer,Tech,"Toronto, Canada",https://www.linkedin.com/in/sarah-jackson-53,sarah.jackson35@alumni.cornell.edu,
+P0054,Jae,Garcia,Jae,2025,Physics,J.P. Morgan,,Banking,"Jersey City, NJ",https://www.linkedin.com/in/jae-garcia-54,jae.garcia@cornell.edu,ambiguous employer formatting
+P0055,Nathan,Scott,Nat,2018,Government,UBS,Wealth Management Analyst,Banking,"Atlanta, GA",https://www.linkedin.com/in/nathan-scott-55,nathan.scott55@outlook.com,title/employer should drive classification
+P0056,George,Bianchi,,2020,Computer Science,PWC STRATEGY&,Management Consultant,Consulting,"Stamford, CT",https://www.linkedin.com/in/george-bianchi-56,george.bianchi25@gmail.com,missing field test
+P0057,Luis,Liu,,2023,Civil Engineering,Fidelity Investments,Financial Analyst,Finance,"Boston, MA",,luis.liu31@yahoo.com,ambiguous employer formatting
+P0058,Anika,Kim,,2023,Electrical Engineering,MCKINSEY & COMPANY,Business Analyst,Consulting,"San Jose, CA",https://www.linkedin.com/in/anika-kim-58,anika.kim58@alumni.cornell.edu,ambiguous employer formatting
+P0059,Andrew,Harris,,2024,Hotel Administration,Morgan Stanley,Capital Markets Analyst,Banking,"Atlanta, GA",https://www.linkedin.com/in/andrew-harris-59,andrew.harris@yahoo.com,missing field test
+P0060,Aisha,Park,,2017,Applied Math,CVS Health,Product Manager,Healthcare,"Austin, TX",https://www.linkedin.com/in/aisha-park-60,aisha.park@outlook.com,missing field test
+P0061,Eric,Roberts,,2014,English,Boston University,Admissions Coordinator,Education,"Jersey City, NJ",https://www.linkedin.com/in/eric-roberts-61,eric.roberts@gmail.com,
+P0062,Neil,Jackson,,2017,,Walmart,Supply Chain Analyst,Operations,Remote,https://www.linkedin.com/in/neil-jackson-62,neil.jackson87@cornell.edu,title/employer should drive classification
+P0063,Ibrahim,Murphy,,2015,Economics,World Bank,RESEARCH ANALYST,Legal/Government,"London, UK",https://www.linkedin.com/in/ibrahim-murphy-63,ibrahim.murphy@gmail.com,missing field test
+P0064,Claire,Davis,,2024,Business,Walmart,Supply Chain Analyst,Operations,"Washington, DC",https://www.linkedin.com/in/claire-davis-64,claire.davis49@yahoo.com,ambiguous employer formatting
+P0065,Priya,Robinson,,2026,Electrical Engineering,Barclays,,Banking,"Stamford, CT",https://www.linkedin.com/in/priya-robinson-65,priya.robinson45@alumni.cornell.edu,missing field test
+P0066,Yusuf,Allen,Yus,2021,Psychology,Point72,Equity Research Analyst,Finance,"Jersey City, NJ",https://www.linkedin.com/in/yusuf-allen-66,yusuf.allen3@cornell.edu,title/employer should drive classification
+P0067,Omar,Miller,,2015,,LEK Consulting,Associate Consultant,Consulting,"Philadelphia, PA",https://www.linkedin.com/in/omar-miller-67,omar.miller67@outlook.com,ambiguous employer formatting
+P0068,Ana,Garcia,Ana,2017,Hotel Administration,KKR,Private Equity Associate,Finance,"Washington, DC",https://www.linkedin.com/in/ana-garcia-68,ana.garcia47@yahoo.com,
+P0069,Sofia,Allen,,2024,Mechanical Engineering,Uber,Marketplace Operations Analyst,Operations,"Toronto, Canada",https://www.linkedin.com/in/sofia-allen-69,sofia.allen@outlook.com,title/employer should drive classification
+P0070,Jason,Lopez,,2016,Physics,ACLU,Program Associate II,Legal/Government,Remote,https://www.linkedin.com/in/jason-lopez-70,jason.lopez14@cornell.edu,ambiguous employer formatting
+P0071,Mei,Adams,,2016,Hotel Administration,Barclays,Sales and Trading Analyst,Banking,"Boston, MA",https://www.linkedin.com/in/mei-adams-71,mei.adams71@gmail.com,
+P0072,Maya,Roberts,,2023,Operations Research,Palantir,Forward Deployed Engineer,Tech,"London, UK",https://www.linkedin.com/in/maya-roberts-72,maya.roberts72@alumni.cornell.edu,missing field test
+P0073,Ethan,Liu,,2026,Psychology,Cogni DAO,Blockchain Engineer,Tech,"San Francisco, CA",https://www.linkedin.com/in/ethan-liu-73,ethan.liu73@outlook.com,
+P0074,Avery,Nelson,,2015,Physics,Pfizer,Clinical Data Analyst,Healthcare,"Los Angeles, CA",https://www.linkedin.com/in/avery-nelson-74,avery.nelson@outlook.com,
+P0075,Nina,Rossi,,2021,Government,Apple,,Tech,"New York, NY",https://www.linkedin.com/in/nina-rossi-75,nina.rossi17@gmail.com,title/employer should drive classification
+P0076,Quinn,Ali,Quinn,2012,English,Millennium Management,Risk Analyst,Finance,"Denver, CO",https://www.linkedin.com/in/quinn-ali-76,quinn.ali76@gmail.com,title/employer should drive classification
+P0077,Victoria,Liu,,2021,History,J.P. MORGAN,Investment Banking Associate,Banking,"Atlanta, GA",https://www.linkedin.com/in/victoria-liu-77,victoria.liu77@yahoo.com,title/employer should drive classification
+P0078,Drew,Anderson,Dre,2026,Statistics,Lazard,Restructuring Analyst,Banking,"London, UK",https://www.linkedin.com/in/drew-anderson-78,drew.anderson78@alumni.cornell.edu,
+P0079,Elena,Allen,,2013,Hotel Administration,EY-Parthenon,Senior Associate,Consulting,"Boston, MA",https://www.linkedin.com/in/elena-allen-79,elena.allen17@cornell.edu,
+P0080,Mei,Nelson,,2026,Information Science,Jane Street,Trading Analyst,Finance,"Denver, CO",https://www.linkedin.com/in/mei-nelson-80,mei.nelson14@cornell.edu,
+P0081,Nicole,Lewis,,2015,Hotel Administration,HubSpot,RevOps Analyst,Tech,"Stamford, CT",https://www.linkedin.com/in/nicole-lewis-81,nicole.lewis79@yahoo.com,
+P0082,Yusuf,Wright,,2021,Biology,HubSpot Inc.,RevOps Analyst,Tech,"Seattle, WA",https://www.linkedin.com/in/yusuf-wright-82,yusuf.wright12@gmail.com,
+P0083,Connor,Baker,,2026,Information Science,Benchmrk,Full Stack Developer,Tech,"Chicago, IL",https://www.linkedin.com/in/connor-baker-83,connor.baker7@yahoo.com,
+P0084,Tyler,Murphy,,2013,Electrical Engineering,IBM Consulting,Transformation Consultant,Consulting,"Jersey City, NJ",https://www.linkedin.com/in/tyler-murphy-84,tyler.murphy@cornell.edu,title/employer should drive classification
+P0085,Alex,Clark,,2012,Civil Engineering,U.S. Senate,Legislative Assistant,Legal/Government,"London, UK",https://www.linkedin.com/in/alex-clark-85,alex.clark69@alumni.cornell.edu,ambiguous employer formatting
+P0086,Brian,Martinez,Bri,2021,Hotel Administration,UBS,Wealth Management Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/brian-martinez-86,brian.martinez@alumni.cornell.edu,title/employer should drive classification
+P0087,Sofia,Petrov,Sof,2021,Biology,FanAmp,Growth Product Manager,Tech,"San Jose, CA",,sofia.petrov87@cornell.edu,ambiguous employer formatting
+P0088,Jamie,Cohen,,2025,Operations Research,Boston Consulting Group,Associate,Consulting,"Austin, TX",https://www.linkedin.com/in/jamie-cohen-88,jamie.cohen@cornell.edu,
+P0089,Jamie,Thompson,,2022,Physics,DigitalOcean,Cloud Support Engineer,Tech,"Dallas, TX",https://www.linkedin.com/in/jamie-thompson-89,jamie.thompson89@cornell.edu,
+P0090,Rachel,Scott,Rac,2025,Electrical Engineering,UBS,Wealth Management Analyst,Banking,"Seattle, WA",https://www.linkedin.com/in/rachel-scott-90,rachel.scott79@gmail.com,
+P0091,Anika,Garcia,,2014,Information Science,LEK Consulting,Associate Consultant,Consulting,"Toronto, Canada",https://www.linkedin.com/in/anika-garcia-91,anika.garcia@cornell.edu,
+P0092,Daniel,Liu,,2018,Hotel Administration,Pfizer,Clinical Data Analyst,Healthcare,"Atlanta, GA",https://www.linkedin.com/in/daniel-liu-92,daniel.liu81@gmail.com,missing field test
+P0093,Mei,Roberts,,2017,Economics,Amazon Web Services,Data Engineer,Tech,"Jersey City, NJ",https://www.linkedin.com/in/mei-roberts-93,mei.roberts40@cornell.edu,title/employer should drive classification
+P0094,Rebecca,Moretti,,2023,English,Microsoft,Cloud Solutions Architect,Tech,"Seattle, WA",https://www.linkedin.com/in/rebecca-moretti-94,rebecca.moretti94@alumni.cornell.edu,
+P0095,Ethan,Baker,,2020,History,Boston Consulting Group,Associate,Consulting,"San Jose, CA",,ethan.baker99@cornell.edu,ambiguous employer formatting
+P0096,Fatima,White,,2018,Psychology,Bridgewater Associates,Research Associate,Finance,"Austin, TX",https://www.linkedin.com/in/fatima-white-96,fatima.white37@yahoo.com,title/employer should drive classification
+P0097,Rebecca,Ali,,2024,Electrical Engineering,Datadog,Backend Engineer,Tech,Remote,https://www.linkedin.com/in/rebecca-ali-97,rebecca.ali@alumni.cornell.edu,
+P0098,Avery,Hassan,,2016,Economics,Stripe,Product Operations Manager,Tech,"Washington, DC",https://www.linkedin.com/in/avery-hassan-98,avery.hassan98@yahoo.com,
+P0099,Evan,Hall,,2013,Psychology,Target,Operations Manager,Operations,"Austin, TX",,evan.hall92@gmail.com,missing field test
+P0100,Casey,Torres,,2021,Computer Science,Cornell University,Research Assistant,Education,"Seattle, WA",,casey.torres20@outlook.com,
+P0101,Grace,Walker,Gra,2021,History,Vanguard,Former Investment Analyst,Finance,"New York, NY",https://www.linkedin.com/in/grace-walker-101,grace.walker31@yahoo.com,ambiguous employer formatting
+P0102,Diego,Rivera,,2013,English,McKinsey & Company,Business Analyst,Consulting,"Stamford, CT",https://www.linkedin.com/in/diego-rivera-102,diego.rivera@yahoo.com,title/employer should drive classification
+P0103,Santiago,Roberts,,2023,Mechanical Engineering,,Media Planner,Marketing,"Jersey City, NJ",https://www.linkedin.com/in/santiago-roberts-103,santiago.roberts@cornell.edu,missing field test
+P0104,Isabella,Ahmed,,2019,Information Science,KKR,Private Equity Associate,Finance,"Denver, CO",https://www.linkedin.com/in/isabella-ahmed-104,isabella.ahmed104@outlook.com,missing field test
+P0105,Katherine,Allen,,2017,Data Science, Jane Street,Trading Analyst,Finance,"Boston, MA",https://www.linkedin.com/in/katherine-allen-105,katherine.allen52@alumni.cornell.edu,title/employer should drive classification
+P0106,Megan,White,,2023,Hotel Administration,FedEx,Logistics Analyst,Operations,"Seattle, WA",https://www.linkedin.com/in/megan-white-106,megan.white106@outlook.com,missing field test
+P0107,Lucia,Nguyen,,2012,Psychology,FanAmp,Growth Product Manager,Tech,"Dallas, TX",https://www.linkedin.com/in/lucia-nguyen-107,lucia.nguyen@cornell.edu,
+P0108,Jason,Cohen,,2024,Industrial and Labor Relations,Merck,Regulatory Affairs Associate,Healthcare,"San Francisco, CA",https://www.linkedin.com/in/jason-cohen-108,jason.cohen108@outlook.com,missing field test
+P0109,Casey,Nowak,,2020,Psychology,LEK Consulting,Associate Consultant,Consulting,Remote,https://www.linkedin.com/in/casey-nowak-109,casey.nowak@cornell.edu,
+P0110,Arjun,Roberts,Arjun,2016,Civil Engineering,Teach For America,Corps Member,Education,"Los Angeles, CA",https://www.linkedin.com/in/arjun-roberts-110,arjun.roberts@gmail.com,title/employer should drive classification
+P0111,Julia,Hall,Julia,2026,Business,World Bank,Research Analyst,Legal/Government,"Philadelphia, PA",https://www.linkedin.com/in/julia-hall-111,julia.hall@gmail.com,ambiguous employer formatting
+P0112,Jason,Bianchi,,2013,Electrical Engineering,Westchester High School,Teacher,Education,Remote,https://www.linkedin.com/in/jason-bianchi-112,jason.bianchi112@alumni.cornell.edu,title/employer should drive classification
+P0113,Nina,Green,,2024,History,Ogilvy,Account Strategist,Marketing,"Jersey City, NJ",https://www.linkedin.com/in/nina-green-113,nina.green56@outlook.com,
+P0114,Rachel,Perez,,2016,Economics,Publicis Groupe,Brand Strategist,Marketing,"Miami, FL",https://www.linkedin.com/in/rachel-perez-114,rachel.perez@yahoo.com,missing field test
+P0115,Leah,Perez,,2017,Physics,Vanguard,Investment Analyst,Finance,"San Francisco, CA",https://www.linkedin.com/in/leah-perez-115,leah.perez@gmail.com,
+P0116,Chen,Singh,,2024,Biology,Deloitte Consulting,Strategy Consultant II,Consulting,"Denver, CO",https://www.linkedin.com/in/chen-singh-116,chen.singh116@gmail.com,title/employer should drive classification
+P0117,Megan,Nowak,,2018,Operations Research,Bank of America,Corporate Banking Analyst,Banking,"Philadelphia, PA",https://www.linkedin.com/in/megan-nowak-117,megan.nowak@gmail.com,title/employer should drive classification
+P0118,Daniel,Jackson,,2026,Business,Launch Potato Inc.,SEO Product Analyst,Tech,"Atlanta, GA",https://www.linkedin.com/in/daniel-jackson-118,daniel.jackson@cornell.edu,title/employer should drive classification
+P0119,Natalie,Flores,Natalie,2017,Information Science,Skadden,Legal Assistant,Legal/Government,"San Francisco, CA",https://www.linkedin.com/in/natalie-flores-119,natalie.flores84@yahoo.com,title/employer should drive classification
+P0120,Sydney,Wong,,2021,History,McKinsey & Company,Business Analyst,Consulting,"Los Angeles, CA",https://www.linkedin.com/in/sydney-wong-120,sydney.wong120@cornell.edu,
+P0121,Emily,Petrov,,2017,History,PJT Partners,Strategic Advisory Analyst,Banking,"Philadelphia, PA",https://www.linkedin.com/in/emily-petrov-121,emily.petrov78@outlook.com,title/employer should drive classification
+P0122,Casey,Moore,,2014,Government,Goldman Sachs,Investment Banking Analyst,Banking,"Dallas, TX",https://www.linkedin.com/in/casey-moore-122,casey.moore79@alumni.cornell.edu,missing field test
+P0123,Chloe,Friedman,,2013,Hotel Administration,Jane Street,,Finance,"Jersey City, NJ",https://www.linkedin.com/in/chloe-friedman-123,chloe.friedman123@gmail.com,missing field test
+P0124,Chen,Robinson,,2025,Biology,ACLU,Program Associate,Legal/Government,"Chicago, IL",https://www.linkedin.com/in/chen-robinson-124,chen.robinson5@outlook.com,
+P0125,Julia,Singh,,2025,Information Science,Launch Potato,SEO Product Analyst,Tech,"Chicago, IL",https://www.linkedin.com/in/julia-singh-125,julia.singh42@yahoo.com,title/employer should drive classification
+P0126,Isabella,Khan,,2022,Data Science,AQR Capital Management,Data Scientist,Finance,"Dallas, TX",https://www.linkedin.com/in/isabella-khan-126,isabella.khan36@outlook.com,missing field test
+P0127,Grace,Clark,,2023,Data Science,OpenAI,Research Engineer,Tech,"Denver, CO",https://www.linkedin.com/in/grace-clark-127,grace.clark127@yahoo.com,missing field test
+P0128,Hannah,Garcia,,2019,Applied Math,New York City Hall,Policy Analyst,Legal/Government,"Los Angeles, CA",https://www.linkedin.com/in/hannah-garcia-128,hannah.garcia72@cornell.edu,missing field test
+P0129,Lena,Muller,Len,2023,Civil Engineering,Salesforce,Business Systems Analyst II,Tech,"Boston, MA",https://www.linkedin.com/in/lena-muller-129,lena.muller1@outlook.com,ambiguous employer formatting
+P0130,Nicole,Sanchez,,2022,Physics,Moelis & Company,Investment Banking Analyst,Banking,"Austin, TX",https://www.linkedin.com/in/nicole-sanchez-130,nicole.sanchez130@gmail.com,ambiguous employer formatting
+P0131,Ryan,O'Brien,Rya,2021,,Walmart,Supply Chain Analyst,Operations,"Boston, MA",https://www.linkedin.com/in/ryan-obrien-131,ryan.obrien131@cornell.edu,
+P0132,Leah,Ahmed,,2023,Business,Bridgewater Associates,Research Associate,Finance,"New York, NY",https://www.linkedin.com/in/leah-ahmed-132,leah.ahmed73@cornell.edu,ambiguous employer formatting
+P0133,Sean,Shah,Sea,2026,Statistics,DigitalOcean,Cloud Support Engineer,Tech,"New York, NY",https://www.linkedin.com/in/sean-shah-133,sean.shah133@outlook.com,missing field test
+P0134,Chen,Johnson,,2014,Biology,ZS Associates,Decision Analytics Associate,Consulting,"San Jose, CA",https://www.linkedin.com/in/chen-johnson-134,chen.johnson@cornell.edu,missing field test
+P0135,Mason,Moore,,2026,Civil Engineering,Deloitte Consulting,Strategy Consultant,Consulting,"Stamford, CT",https://www.linkedin.com/in/mason-moore-135,mason.moore@outlook.com,
+P0136,Raj,Park,,2026,English,Ogilvy,Account Strategist,Marketing,"Los Angeles, CA",https://www.linkedin.com/in/raj-park-136,raj.park136@outlook.com,
+P0137,Noah,Schmidt,Noa,2019,Physics,UBS,Wealth Management Analyst,Banking,"San Francisco, CA",https://www.linkedin.com/in/noah-schmidt-137,noah.schmidt@cornell.edu,title/employer should drive classification
+P0138,Iris,Ramirez,,2026,Civil Engineering,McKinsey & Company,Business Analyst Intern,Consulting,"San Francisco, CA",https://www.linkedin.com/in/iris-ramirez-138,iris.ramirez@outlook.com,title/employer should drive classification
+P0139,Evan,Carter,,2017,Mechanical Engineering,PwC Strategy&,Management Consultant,Consulting,"Washington, DC",https://www.linkedin.com/in/evan-carter-139,evan.carter@alumni.cornell.edu,ambiguous employer formatting
+P0140,Rachel,Ahmed,Rac,2014,Data Science,WPP,Media Planner,Marketing,"Los Angeles, CA",https://www.linkedin.com/in/rachel-ahmed-140,rachel.ahmed5@gmail.com,title/employer should drive classification
+P0141,Henry,Clark,,2018,Industrial and Labor Relations,BlackRock ,Portfolio Analyst II,Finance,"Austin, TX",https://www.linkedin.com/in/henry-clark-141,henry.clark18@gmail.com,missing field test
+P0142,Julia,Lefevre,Julia,2020,Statistics,Adobe,UX Engineer,Tech,"London, UK",https://www.linkedin.com/in/julia-lefevre-142,julia.lefevre72@gmail.com,ambiguous employer formatting
+P0143,Mei,O'Brien,,2018,Hotel Administration,Point72 Inc.,Equity Research Analyst,Finance,"Chicago, IL",https://www.linkedin.com/in/mei-obrien-143,mei.obrien97@outlook.com,title/employer should drive classification
+P0144,Rachel,Jackson,,2014,Biology,Datadog,Backend Engineer,Tech,"Austin, TX",https://www.linkedin.com/in/rachel-jackson-144,rachel.jackson@cornell.edu,title/employer should drive classification
+P0145,Amit,Harris,Amit,2023,History,Ogilvy,Account Strategist,Marketing,"Los Angeles, CA",https://www.linkedin.com/in/amit-harris-145,amit.harris@cornell.edu,ambiguous employer formatting
+P0146,Parker,Hassan,Par,2024,Electrical Engineering,General Electric,Operations Leadership Associate,Operations,Remote,https://www.linkedin.com/in/parker-hassan-146,parker.hassan146@cornell.edu,missing field test
+P0147,Madison,Gonzalez,Mad,2018,Information Science,Fidelity Investments,Financial Analyst,Finance,"Jersey City, NJ",https://www.linkedin.com/in/madison-gonzalez-147,madison.gonzalez147@outlook.com,
+P0148,Neil,Singh,Neil,2022,Government,Tesla,Manufacturing Engineer,Operations,"Miami, FL",https://www.linkedin.com/in/neil-singh-148,neil.singh93@alumni.cornell.edu,title/employer should drive classification
+P0149,Sofia,Moore,,2012,English,Evercore,M&A Analyst,Banking,"San Francisco, CA",https://www.linkedin.com/in/sofia-moore-149,sofia.moore@gmail.com,
+P0150,Lucas,Rodriguez,,2026,,UBS,Wealth Management Analyst II,Banking,Singapore,https://www.linkedin.com/in/lucas-rodriguez-150,lucas.rodriguez1@gmail.com,
+P0151,Raj,Scott,,2026,Business,Goldman Sachs,Investment Banking Analyst,Banking,"Boston, MA",https://www.linkedin.com/in/raj-scott-151,raj.scott@yahoo.com,ambiguous employer formatting
+P0152,Brian,Wright,,2016,Economics,Citadel,Former Quantitative Developer,Finance,"San Francisco, CA",https://www.linkedin.com/in/brian-wright-152,brian.wright49@alumni.cornell.edu,title/employer should drive classification
+P0153,Noor,Perez,,2026,English,Google,Software Engineer,Tech,"San Francisco, CA",https://www.linkedin.com/in/noor-perez-153,noor.perez153@yahoo.com,
+P0154,Emily,Rossi,Emily,2025,Biology,,Operations Leadership Associate Intern,Operations,"Seattle, WA",https://www.linkedin.com/in/emily-rossi-154,emily.rossi31@yahoo.com,title/employer should drive classification
+P0155,Lauren,Roberts,,2017,Information Science,Memorial Sloan Kettering,Research Assistant,Healthcare,"Boston, MA",https://www.linkedin.com/in/lauren-roberts-155,lauren.roberts44@gmail.com,
+P0156,Claire,Brown,,2018,Hotel Administration,Skadden,Legal Assistant,Legal/Government,"Washington, DC",https://www.linkedin.com/in/claire-brown-156,claire.brown11@alumni.cornell.edu,missing field test
+P0157,Jamie,Hernandez,,2017,Mechanical Engineering,Boston University,Admissions Coordinator,Education,"Seattle, WA",,jamie.hernandez157@cornell.edu,missing field test
+P0158,Emma,Wong,,2013,,Microsoft,,Tech,"Dallas, TX",https://www.linkedin.com/in/emma-wong-158,emma.wong158@alumni.cornell.edu,title/employer should drive classification
+P0159,Neil,Moretti,,2014,Data Science,Bain & Company,Associate Consultant,Consulting,"Denver, CO",https://www.linkedin.com/in/neil-moretti-159,neil.moretti@outlook.com,title/employer should drive classification
+P0160,Nicole,Martinez,,2019,Mechanical Engineering,Accenture,Technology Consultant,Consulting,"Chicago, IL",https://www.linkedin.com/in/nicole-martinez-160,nicole.martinez43@alumni.cornell.edu,title/employer should drive classification
+P0161,Nathan,Nelson,,2021,Applied Math,L'Oreal,Digital Marketing Associate,Marketing,Singapore,https://www.linkedin.com/in/nathan-nelson-161,nathan.nelson161@alumni.cornell.edu,title/employer should drive classification
+P0162,Claire,Carter,Claire,2014,History,New York City Hall,Policy Analyst,Legal/Government,"New York, NY",https://www.linkedin.com/in/claire-carter-162,claire.carter@alumni.cornell.edu,title/employer should drive classification
+P0163,Quinn,Kim,Qui,2024,Biology,Boston University,Admissions Coordinator,Education,"Seattle, WA",https://www.linkedin.com/in/quinn-kim-163,quinn.kim62@yahoo.com,title/employer should drive classification
+P0164,Brandon,Rossi,,2013,Statistics,Millennium Management Inc.,Risk Analyst,Finance,"Philadelphia, PA",https://www.linkedin.com/in/brandon-rossi-164,brandon.rossi6@yahoo.com,title/employer should drive classification
+P0165,Zachary,Wilson,,2015,Industrial and Labor Relations,Department of Justice Inc.,Paralegal,Legal/Government,"Philadelphia, PA",https://www.linkedin.com/in/zachary-wilson-165,zachary.wilson89@yahoo.com,ambiguous employer formatting
+P0166,Nicole,Wilson,,2017,Electrical Engineering,McKinsey & Company,Business Analyst,Consulting,"Atlanta, GA",https://www.linkedin.com/in/nicole-wilson-166,nicole.wilson166@outlook.com,missing field test
+P0167,Neil,Park,,2022,Mechanical Engineering,Moelis & Company,Investment Banking Analyst,Banking,"Washington, DC",https://www.linkedin.com/in/neil-park-167,neil.park@outlook.com,
+P0168,Tyler,Ahmed,,2012,,Palantir,Forward Deployed Engineer,Tech,"Los Angeles, CA",https://www.linkedin.com/in/tyler-ahmed-168,tyler.ahmed@alumni.cornell.edu,ambiguous employer formatting
+P0169,Chen,Wilson,Chen,2025,Civil Engineering,Microsoft,Cloud Solutions Architect,Tech,"San Jose, CA",https://www.linkedin.com/in/chen-wilson-169,chen.wilson169@cornell.edu,
+P0170,Kevin,Rivera,,2021,Physics,J.P. Morgan,Investment Banking Associate,Banking,"Seattle, WA",https://www.linkedin.com/in/kevin-rivera-170,kevin.rivera@cornell.edu,missing field test
+P0171,Yusuf,Jackson,Yusuf,2020,Business,Cogni DAO,Blockchain Engineer,Tech,"Stamford, CT",https://www.linkedin.com/in/yusuf-jackson-171,yusuf.jackson@cornell.edu,missing field test
+P0172,Brian,Johnson,,2018,Civil Engineering,WPP,Media Planner,Marketing,"London, UK",https://www.linkedin.com/in/brian-johnson-172,brian.johnson@alumni.cornell.edu,
+P0173,Hannah,Jones,,2024,Civil Engineering,Two Sigma,Quantitative Researcher,Finance,"Stamford, CT",https://www.linkedin.com/in/hannah-jones-173,hannah.jones173@yahoo.com,
+P0174,Neha,Garcia,,2022,Statistics,L'Oreal,Digital Marketing Associate,Marketing,"Denver, CO",https://www.linkedin.com/in/neha-garcia-174,neha.garcia174@gmail.com,missing field test
+P0175,Nathan,Thomas,,2023,,Ogilvy,Account Strategist,Marketing,"London, UK",https://www.linkedin.com/in/nathan-thomas-175,nathan.thomas@outlook.com,
+P0176,Emily,Kowalski,,2025,English,Jane Street,Trading Analyst,Finance,"Boston, MA",https://www.linkedin.com/in/emily-kowalski-176,emily.kowalski176@alumni.cornell.edu,ambiguous employer formatting
+P0177,Daniel,Jackson,,2021,Data Science,Mount Sinai Health System,Research Coordinator,Healthcare,"London, UK",https://www.linkedin.com/in/daniel-jackson-177,daniel.jackson@gmail.com,title/employer should drive classification
+P0178,Yusuf,Mitchell,,2013,Industrial and Labor Relations,Citadel,Quantitative Developer,Finance,"Philadelphia, PA",https://www.linkedin.com/in/yusuf-mitchell-178,yusuf.mitchell@yahoo.com,title/employer should drive classification
+P0179,Sarah,Adams,,2017,Information Science,Google,Ads Account Strategist,Marketing,"San Francisco, CA",https://www.linkedin.com/in/sarah-adams-179,sarah.adams@alumni.cornell.edu,ambiguous employer formatting
+P0180,Tyler,Sanchez,,2026,Data Science,Goldman Sachs,Investment Banking Analyst,Banking,"Seattle, WA",https://www.linkedin.com/in/tyler-sanchez-180,tyler.sanchez180@cornell.edu,ambiguous employer formatting
+P0181,Rebecca,Robinson,Rebecca,2015,English,DigitalOcean,Cloud Support Engineer,Tech,"Toronto, Canada",,rebecca.robinson181@cornell.edu,ambiguous employer formatting
+P0182,Andrew,Lopez,,2022,Operations Research,Bank of America,Corporate Banking Analyst,Banking,"Seattle, WA",https://www.linkedin.com/in/andrew-lopez-182,andrew.lopez79@gmail.com,ambiguous employer formatting
+P0183,Luis,Martin,,2014,Mechanical Engineering,Bank of America,Corporate Banking Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/luis-martin-183,luis.martin183@cornell.edu,ambiguous employer formatting
+P0184,Sam,Young,,2025,Electrical Engineering,DigitalOcean,Cloud Support Engineer,Tech,"Los Angeles, CA",https://www.linkedin.com/in/sam-young-184,sam.young25@yahoo.com,title/employer should drive classification
+P0185,Henry,O'Brien,,2012,Psychology,McKinsey & Company,Business Analyst,Consulting,"Atlanta, GA",https://www.linkedin.com/in/henry-obrien-185,henry.obrien185@yahoo.com,
+P0186,Jamie,Williams,,2020,Electrical Engineering,,product manager,Healthcare,"San Jose, CA",https://www.linkedin.com/in/jamie-williams-186,jamie.williams186@alumni.cornell.edu,
+P0187,Diego,Martin,,2020,Government,Memorial Sloan Kettering,Research Assistant,Healthcare,Remote,https://www.linkedin.com/in/diego-martin-187,diego.martin40@gmail.com,title/employer should drive classification
+P0188,Cameron,Young,,2022,Business,Mayo Clinic,Data Analyst,Healthcare,"Boston, MA",,cameron.young@outlook.com,ambiguous employer formatting
+P0189,Arjun,Levine,,2016,Mechanical Engineering,Evercore,M&A Analyst,Banking,"New York, NY",https://www.linkedin.com/in/arjun-levine-189,arjun.levine35@alumni.cornell.edu,
+P0190,Luis,Martinez,,2016,Mechanical Engineering,LEK Consulting,Associate Consultant,Consulting,"Jersey City, NJ",https://www.linkedin.com/in/luis-martinez-190,luis.martinez30@gmail.com,
+P0191,Daniel,Garcia,,2020,Hotel Administration,Google,Software Engineer,Tech,"Austin, TX",https://www.linkedin.com/in/daniel-garcia-191,daniel.garcia191@alumni.cornell.edu,missing field test
+P0192,Parker,Walsh,,2013,Industrial and Labor Relations,L'Oreal,digital marketing associate,Marketing,"Denver, CO",https://www.linkedin.com/in/parker-walsh-192,parker.walsh@cornell.edu,
+P0193,Liam,Nguyen,,2019,Applied Math,Evercore,M&A Analyst,Banking,"Stamford, CT",https://www.linkedin.com/in/liam-nguyen-193,liam.nguyen@outlook.com,title/employer should drive classification
+P0194,Kevin,Maiello,,2025,Electrical Engineering,Palantir,,Tech,"Boston, MA",https://www.linkedin.com/in/kevin-maiello-194,kevin.maiello194@outlook.com,
+P0195,Ibrahim,Scott,,2023,Economics,new york city hall,Policy Analyst,Legal/Government,"Jersey City, NJ",https://www.linkedin.com/in/ibrahim-scott-195,ibrahim.scott195@outlook.com,
+P0196,Zachary,Taylor,,2023,Government,BlackRock,Portfolio Analyst,Finance,"Atlanta, GA",https://www.linkedin.com/in/zachary-taylor-196,zachary.taylor@outlook.com,ambiguous employer formatting
+P0197,Sydney,Martin,,2015,Industrial and Labor Relations,Khan Academy,Curriculum Operations Associate,Education,"Denver, CO",https://www.linkedin.com/in/sydney-martin-197,sydney.martin@gmail.com,missing field test
+P0198,Ethan,Adams,Eth,2016,Business,WPP,Media Planner,Marketing,"New York, NY",https://www.linkedin.com/in/ethan-adams-198,ethan.adams72@alumni.cornell.edu,
+P0199,Sydney,Moore,,2022,Economics,Launch Potato,seo product analyst,Tech,"Jersey City, NJ",https://www.linkedin.com/in/sydney-moore-199,sydney.moore@gmail.com,ambiguous employer formatting
+P0200,Nina,Lopez,,2014,Physics,FedEx,Logistics Analyst,Operations,"London, UK",https://www.linkedin.com/in/nina-lopez-200,nina.lopez@alumni.cornell.edu,title/employer should drive classification
+P0201,Brian,Ramirez,,2021,Statistics,Mount Sinai Health System,Research Coordinator,Healthcare,"Denver, CO",https://www.linkedin.com/in/brian-ramirez-201,brian.ramirez@yahoo.com,
+P0202,Brandon,Sanchez,,2012,Biology,Boston Consulting Group,Associate,Consulting,"Philadelphia, PA",https://www.linkedin.com/in/brandon-sanchez-202,brandon.sanchez45@alumni.cornell.edu,
+P0203,Emma,Brown,Emm,2020,Psychology,Accenture,Technology Consultant,Consulting,"Jersey City, NJ",https://www.linkedin.com/in/emma-brown-203,emma.brown@outlook.com,ambiguous employer formatting
+P0204,Cameron,Lewis,,2014,Business,ZS Associates,Decision Analytics Associate,Consulting,"Austin, TX",https://www.linkedin.com/in/cameron-lewis-204,cameron.lewis@cornell.edu,missing field test
+P0205,Priya,Dubois,,2014,Civil Engineering,Tesla,Manufacturing Engineer,Operations,"San Francisco, CA",https://www.linkedin.com/in/priya-dubois-205,priya.dubois@outlook.com,
+P0206,Lauren,Ivanov,,2017,Information Science,BlackRock,Portfolio Analyst,Finance,"New York, NY",https://www.linkedin.com/in/lauren-ivanov-206,lauren.ivanov15@outlook.com,missing field test
+P0207,Layla,Chen,,2018,Civil Engineering,Department of Justice,Paralegal,Legal/Government,"Atlanta, GA",https://www.linkedin.com/in/layla-chen-207,layla.chen89@yahoo.com,missing field test
+P0208,Isabella,Carter,,2021,Biology,Adobe,UX Engineer,Tech,"Jersey City, NJ",,isabella.carter41@yahoo.com,ambiguous employer formatting
+P0209,Natalie,Jackson,,2013,Government,Vanguard,Investment Analyst Intern,Finance,"Toronto, Canada",,natalie.jackson32@outlook.com,
+P0210,Neil,Smith,,2018,Psychology,Bain and Company,Associate Consultant,Consulting,"Stamford, CT",https://www.linkedin.com/in/neil-smith-210,neil.smith74@alumni.cornell.edu,ambiguous employer formatting
+P0211,Casey,Nguyen,,2023,Economics,Microsoft Inc.,Cloud Solutions Architect,Tech,"Stamford, CT",https://www.linkedin.com/in/casey-nguyen-211,casey.nguyen44@gmail.com,
+P0212,Morgan,Wong,,2015,Hotel Administration,General Electric,Operations Leadership Associate,Operations,"Stamford, CT",https://www.linkedin.com/in/morgan-wong-212,morgan.wong34@yahoo.com,missing field test
+P0213,Avery,Chen,,2016,,Bain & Company,Associate Consultant,Consulting,Singapore,https://www.linkedin.com/in/avery-chen-213,avery.chen@gmail.com,missing field test
+P0214,Reese,Flores,,2018,Business,Skadden,Legal Assistant,Legal/Government,"Philadelphia, PA",https://www.linkedin.com/in/reese-flores-214,reese.flores214@cornell.edu,
+P0215,David,Lewis,David,2017,History,KPMG Advisory,Risk Consultant,Consulting,"London, UK",https://www.linkedin.com/in/david-lewis-215,david.lewis30@yahoo.com,
+P0216,Amit,Ali,,2012,English,Spotify,Artist Marketing Manager,Marketing,"Jersey City, NJ",https://www.linkedin.com/in/amit-ali-216,amit.ali87@yahoo.com,ambiguous employer formatting
+P0217,Isabella,Perez,,2018,Applied Math,Launch Potato,SEO Product Analyst,Tech,"Chicago, IL",https://www.linkedin.com/in/isabella-perez-217,isabella.perez41@cornell.edu,
+P0218,Ryan,Bianchi,,2021,Physics,Palantir,Forward Deployed Engineer,Tech,"San Jose, CA",https://www.linkedin.com/in/ryan-bianchi-218,ryan.bianchi@gmail.com,ambiguous employer formatting
+P0219,George,Gonzalez,,2017,Hotel Administration,Apollo Global Management,Private Equity Analyst,Finance,"Miami, FL",https://www.linkedin.com/in/george-gonzalez-219,george.gonzalez74@alumni.cornell.edu,title/employer should drive classification
+P0220,Sean,Jackson,,2023,Statistics,Stripe,Product Operations Manager,Tech,"San Francisco, CA",https://www.linkedin.com/in/sean-jackson-220,sean.jackson@cornell.edu,missing field test
+P0221,Rebecca,Scott,Reb,2023,Industrial and Labor Relations,PepsiCo,Consumer Insights Analyst,Marketing,"Atlanta, GA",https://www.linkedin.com/in/rebecca-scott-221,rebecca.scott78@alumni.cornell.edu,
+P0222,Patrick,Murphy,Pat,2023,English,Netflix,Analytics Lead,Tech,Remote,https://www.linkedin.com/in/patrick-murphy-222,patrick.murphy@yahoo.com,ambiguous employer formatting
+P0223,Cameron,Young,,2020,Biology,NETFLIX,Analytics Lead,Tech,"Boston, MA",https://www.linkedin.com/in/cameron-young-223,cameron.young223@outlook.com,
+P0224,Min,Bianchi,,2016,Computer Science,Moelis & Company,Investment Banking Analyst,Banking,Remote,,min.bianchi@yahoo.com,ambiguous employer formatting
+P0225,Maria,Kim,,2014,Business,UnitedHealth Group,Healthcare Analyst,Healthcare,"Dallas, TX",https://www.linkedin.com/in/maria-kim-225,maria.kim33@outlook.com,missing field test
+P0226,Tyler,Carter,,2021,Biology,UnitedHealth Group,Healthcare Analyst,Healthcare,"Jersey City, NJ",https://www.linkedin.com/in/tyler-carter-226,tyler.carter226@yahoo.com,
+P0227,Rachel,Wilson,,2022,Electrical Engineering,UnitedHealth Group,Healthcare Analyst,Healthcare,"Los Angeles, CA",https://www.linkedin.com/in/rachel-wilson-227,rachel.wilson8@outlook.com,title/employer should drive classification
+P0228,Neil,Brown,,2012,Physics,Mount Sinai Health System,Research Coordinator,Healthcare,"Jersey City, NJ",https://www.linkedin.com/in/neil-brown-228,neil.brown93@cornell.edu,ambiguous employer formatting
+P0229,Elena,Rivera,,2019,Operations Research,CVS Health,Product Manager,Healthcare,"Miami, FL",https://www.linkedin.com/in/elena-rivera-229,elena.rivera@yahoo.com,missing field test
+P0230,Brian,Lewis,,2016,Industrial and Labor Relations,Mayo Clinic,Data Analyst,Healthcare,"Boston, MA",https://www.linkedin.com/in/brian-lewis-230,brian.lewis75@yahoo.com,
+P0231,Leah,Thomas,,2014,Applied Math,Bank of America,Corporate Banking Analyst,Banking,"Atlanta, GA",https://www.linkedin.com/in/leah-thomas-231,leah.thomas@yahoo.com,missing field test
+P0232,Sam,Murphy,,2015,Business,Publicis Groupe,Brand Strategist,Marketing,"Jersey City, NJ",https://www.linkedin.com/in/sam-murphy-232,sam.murphy@alumni.cornell.edu,ambiguous employer formatting
+P0233,Tyler,Patel,,2012,Government,,Private Equity Associate,Finance,"San Jose, CA",https://www.linkedin.com/in/tyler-patel-233,tyler.patel81@gmail.com,ambiguous employer formatting
+P0234,Rebecca,Taylor,,2016,Industrial and Labor Relations,Cogni DAO ,Blockchain Engineer,Tech,"San Jose, CA",https://www.linkedin.com/in/rebecca-taylor-234,rebecca.taylor56@cornell.edu,ambiguous employer formatting
+P0235,Brian,Harris,,2015,Computer Science,KPMG Advisory,,Consulting,"Jersey City, NJ",https://www.linkedin.com/in/brian-harris-235,brian.harris47@gmail.com,
+P0236,Michael,Friedman,,2012,Mechanical Engineering,IBM Consulting,Transformation Consultant,Consulting,"London, UK",https://www.linkedin.com/in/michael-friedman-236,michael.friedman236@gmail.com,title/employer should drive classification
+P0237,Yusuf,Wusu,,2014,Hotel Administration,Mayo Clinic,Data Analyst,Healthcare,"Boston, MA",https://www.linkedin.com/in/yusuf-wusu-237,yusuf.wusu237@yahoo.com,
+P0238,Liam,Nowak,,2016,Business,Teach For America,Corps Member,Education,"San Francisco, CA",https://www.linkedin.com/in/liam-nowak-238,liam.nowak238@outlook.com,missing field test
+P0239,Elena,Lopez,Elena,2013,Mechanical Engineering,Google,Software Engineer,Tech,"Miami, FL",https://www.linkedin.com/in/elena-lopez-239,elena.lopez239@alumni.cornell.edu,title/employer should drive classification
+P0240,Riley,Nguyen,,2026,Information Science,Spotify,Head of Growth,Tech,"New York, NY",https://www.linkedin.com/in/riley-nguyen-240,riley.nguyen240@outlook.com,title/employer should drive classification
+P0241,Theo,Lopez,,2025,Biology,Department of Justice,Paralegal,Legal/Government,Singapore,https://www.linkedin.com/in/theo-lopez-241,theo.lopez@outlook.com,
+P0242,Sydney,Singh,,2024,Psychology,New York City Hall,Policy Analyst,Legal/Government,"Dallas, TX",,sydney.singh242@outlook.com,
+P0243,Riley,Rodriguez,,2021,Physics,FedEx,Logistics Analyst,Operations,"Austin, TX",https://www.linkedin.com/in/riley-rodriguez-243,riley.rodriguez67@cornell.edu,
+P0244,Theo,Young,,2026,,HubSpot,RevOps Analyst,Tech,"San Francisco, CA",,theo.young244@outlook.com,title/employer should drive classification
+P0245,Vivian,Murphy,,2018,Biology,Ogilvy,Account Strategist,Marketing,"Austin, TX",,vivian.murphy245@alumni.cornell.edu,
+P0246,Julia,Thomas,Julia,2012,Economics,,Ads Account Strategist,Marketing,"Dallas, TX",https://www.linkedin.com/in/julia-thomas-246,julia.thomas66@cornell.edu,ambiguous employer formatting
+P0247,Megan,Campbell,,2021,Civil Engineering,CVS Health,Product Manager,Healthcare,"Philadelphia, PA",https://www.linkedin.com/in/megan-campbell-247,megan.campbell13@gmail.com,ambiguous employer formatting
+P0248,Santiago,Nguyen,,2025,Hotel Administration,Cogni DAO,Blockchain Engineer,Tech,"Boston, MA",https://www.linkedin.com/in/santiago-nguyen-248,santiago.nguyen@outlook.com,title/employer should drive classification
+P0249,Ibrahim,Baker,,2021,English,Netflix,Analytics Lead II,Tech,"Chicago, IL",https://www.linkedin.com/in/ibrahim-baker-249,ibrahim.baker68@gmail.com,
+P0250,Yuna,Hassan,,2013,Biology,Point72,Equity Research Analyst,Finance,"Dallas, TX",https://www.linkedin.com/in/yuna-hassan-250,yuna.hassan250@cornell.edu,title/employer should drive classification
+P0251,George,Young,Geo,2021,English,World Bank,Research Analyst,Legal/Government,"Denver, CO",https://www.linkedin.com/in/george-young-251,george.young41@yahoo.com,
+P0252,Noah,Petrov,,2014,English,Two Sigma,Quantitative Researcher,Finance,"Stamford, CT",https://www.linkedin.com/in/noah-petrov-252,noah.petrov@cornell.edu,missing field test
+P0253,Chen,Singh,,2012,English,Apollo Global Management,Private Equity Analyst,Finance,"Boston, MA",,chen.singh7@outlook.com,
+P0254,Grace,Allen,,2019,Mechanical Engineering,Spotify,Head of Growth Intern,Tech,"Dallas, TX",https://www.linkedin.com/in/grace-allen-254,grace.allen29@yahoo.com,
+P0255,Noor,Torres,,2017,History,Oliver Wyman,Former Consultant,Consulting,"San Francisco, CA",,noor.torres26@cornell.edu,title/employer should drive classification
+P0256,Vivian,Muller,,2014,Economics,L'Oreal,Digital Marketing Associate,Marketing,"Washington, DC",https://www.linkedin.com/in/vivian-muller-256,vivian.muller256@yahoo.com,
+P0257,David,Taylor,,2012,Operations Research,,Strategic Advisory Analyst,Banking,"Atlanta, GA",https://www.linkedin.com/in/david-taylor-257,david.taylor257@yahoo.com,title/employer should drive classification
+P0258,Brian,Martinez,Brian,2014,Hotel Administration,Khan Academy,Curriculum Operations Associate,Education,"Stamford, CT",https://www.linkedin.com/in/brian-martinez-258,brian.martinez@gmail.com,ambiguous employer formatting
+P0259,Jason,Nguyen,,2022,Computer Science,Moderna,Bioinformatics Analyst,Healthcare,"Boston, MA",https://www.linkedin.com/in/jason-nguyen-259,jason.nguyen31@alumni.cornell.edu,
+P0260,Riley,Adams,,2012,English,Target,Operations Manager,Operations,"Philadelphia, PA",https://www.linkedin.com/in/riley-adams-260,riley.adams260@yahoo.com,
+P0261,Olivia,Adams,,2012,Economics,IBM Consulting,Transformation Consultant,Consulting,"Los Angeles, CA",https://www.linkedin.com/in/olivia-adams-261,olivia.adams261@outlook.com,
+P0262,Ana,Martinez,,2014,Data Science,Benchmrk,Full Stack Developer,Tech,"Stamford, CT",,ana.martinez262@outlook.com,title/employer should drive classification
+P0263,Zachary,Green,Zachary,2021,Information Science,,Restructuring Analyst,Banking,"Seattle, WA",https://www.linkedin.com/in/zachary-green-263,zachary.green263@yahoo.com,missing field test
+P0264,George,Liu,George,2018,History,,Quantitative Developer,Finance,"Denver, CO",https://www.linkedin.com/in/george-liu-264,george.liu39@outlook.com,missing field test
+P0265,Anika,Moretti,,2016,Applied Math,U.S. Senate,Legislative Assistant II,Legal/Government,"Philadelphia, PA",https://www.linkedin.com/in/anika-moretti-265,anika.moretti@yahoo.com,ambiguous employer formatting
+P0266,Olivia,Anderson,,2020,Industrial and Labor Relations,Stripe,Product Operations Manager,Tech,"Stamford, CT",,olivia.anderson@gmail.com,ambiguous employer formatting
+P0267,Lauren,Rivera,,2017,Civil Engineering,CVS Health,Product Manager,Healthcare,"Toronto, Canada",https://www.linkedin.com/in/lauren-rivera-267,lauren.rivera89@cornell.edu,ambiguous employer formatting
+P0268,Julia,Shah,,2016,Psychology,AQR Capital Management,Data Scientist,Finance,"Chicago, IL",https://www.linkedin.com/in/julia-shah-268,julia.shah268@cornell.edu,title/employer should drive classification
+P0269,Victoria,Bianchi,Victoria,2015,Data Science, Accenture,Technology Consultant,Consulting,"Seattle, WA",https://www.linkedin.com/in/victoria-bianchi-269,victoria.bianchi65@gmail.com,
+P0270,Min,Ramirez,,2024,Operations Research,Spotify,Artist Marketing Manager,Marketing,"Philadelphia, PA",https://www.linkedin.com/in/min-ramirez-270,min.ramirez270@yahoo.com,ambiguous employer formatting
+P0271,Chris,Chen,,2014,English,PJT Partners,strategic advisory analyst,Banking,"Chicago, IL",https://www.linkedin.com/in/chris-chen-271,chris.chen73@outlook.com,ambiguous employer formatting
+P0272,Brian,Garcia,,2020,Psychology,Teach For America,Corps Member,Education,Remote,https://www.linkedin.com/in/brian-garcia-272,brian.garcia@alumni.cornell.edu,missing field test
+P0273,Santiago,Scott,,2017,Physics,Snowflake,Sales Engineer,Tech,"Seattle, WA",https://www.linkedin.com/in/santiago-scott-273,santiago.scott29@alumni.cornell.edu,title/employer should drive classification
+P0274,Victoria,Hassan,,2016,Applied Math,EY-Parthenon,senior associate,Consulting,"Chicago, IL",https://www.linkedin.com/in/victoria-hassan-274,victoria.hassan78@cornell.edu,
+P0275,Lauren,Anderson,,2012,Statistics,Merck,Regulatory Affairs Associate,Healthcare,"San Francisco, CA",https://www.linkedin.com/in/lauren-anderson-275,lauren.anderson@yahoo.com,
+P0276,Priya,Davis,,2022,Computer Science,Adobe,UX Engineer,Tech,"Denver, CO",https://www.linkedin.com/in/priya-davis-276,priya.davis58@outlook.com,title/employer should drive classification
+P0277,Mason,Kim,,2016,Business,Publicis Groupe,Brand Strategist,Marketing,"Atlanta, GA",https://www.linkedin.com/in/mason-kim-277,mason.kim@yahoo.com,ambiguous employer formatting
+P0278,Sydney,Williams,,2014,Civil Engineering,Boston Consulting Group,Associate,Consulting,"Dallas, TX",https://www.linkedin.com/in/sydney-williams-278,sydney.williams@yahoo.com,
+P0279,Carlos,Rossi,,2017,Information Science,Morgan Stanley,Capital Markets Analyst,Banking,"San Jose, CA",https://www.linkedin.com/in/carlos-rossi-279,carlos.rossi279@alumni.cornell.edu,missing field test
+P0280,George,Lefevre,George,2026,History,millennium management,Risk Analyst,Finance,"London, UK",https://www.linkedin.com/in/george-lefevre-280,george.lefevre91@gmail.com,
+P0281,Arjun,Smith,Arj,2022,Physics,Vanguard,Investment Analyst,Finance,"Miami, FL",https://www.linkedin.com/in/arjun-smith-281,arjun.smith55@yahoo.com,missing field test
+P0282,Ryan,Clark,,2016,Electrical Engineering,KKR,Private Equity Associate,Finance,"Jersey City, NJ",https://www.linkedin.com/in/ryan-clark-282,ryan.clark@alumni.cornell.edu,
+P0283,Noor,Lee,,2023,Information Science,Teach For America ,Corps Member,Education,"Washington, DC",https://www.linkedin.com/in/noor-lee-283,noor.lee@gmail.com,title/employer should drive classification
+P0284,Chris,Rodriguez,,2018,,FedEx,Logistics Analyst,Operations,"San Jose, CA",https://www.linkedin.com/in/chris-rodriguez-284,chris.rodriguez@yahoo.com,title/employer should drive classification
+P0285,Lucia,Levine,,2022,Information Science,Bank of America,Corporate Banking Analyst II,Banking,"Philadelphia, PA",https://www.linkedin.com/in/lucia-levine-285,lucia.levine@gmail.com,missing field test
+P0286,Elena,Chen,,2020,Electrical Engineering,,Program Coordinator,Education,"Stamford, CT",https://www.linkedin.com/in/elena-chen-286,elena.chen286@cornell.edu,ambiguous employer formatting
+P0287,Connor,Patel,Con,2017,Mechanical Engineering,Two Sigma,Quantitative Researcher,Finance,"San Jose, CA",https://www.linkedin.com/in/connor-patel-287,connor.patel287@yahoo.com,title/employer should drive classification
+P0288,Nicole,Young,,2012,Civil Engineering,ACLU,Program Associate,Legal/Government,"Boston, MA",https://www.linkedin.com/in/nicole-young-288,nicole.young@alumni.cornell.edu,ambiguous employer formatting
+P0289,Brian,Levine,,2023,Government,Spotify,Artist Marketing Manager,Marketing,"Seattle, WA",https://www.linkedin.com/in/brian-levine-289,brian.levine289@outlook.com,missing field test
+P0290,Sarah,White,Sarah,2015,Data Science,Adobe,UX Engineer,Tech,"Los Angeles, CA",https://www.linkedin.com/in/sarah-white-290,sarah.white290@outlook.com,ambiguous employer formatting
+P0291,Sam,O'Brien,,2021,Government,Westchester High School,Teacher,Education,Singapore,https://www.linkedin.com/in/sam-obrien-291,sam.obrien291@yahoo.com,ambiguous employer formatting
+P0292,Emily,Chen,,2020,Information Science,ACLU,Program Associate,Legal/Government,"San Jose, CA",https://www.linkedin.com/in/emily-chen-292,emily.chen@outlook.com,
+P0293,Jordan,Clark,Jor,2015,Data Science,Goldman Sachs,Investment Banking Analyst,Banking,Singapore,https://www.linkedin.com/in/jordan-clark-293,jordan.clark@cornell.edu,title/employer should drive classification
+P0294,Noor,Mitchell,,2022,Statistics,Lazard,Restructuring Analyst,Banking,"Boston, MA",https://www.linkedin.com/in/noor-mitchell-294,noor.mitchell294@outlook.com,title/employer should drive classification
+P0295,Katherine,Johnson,,2023,Government,Apple,Machine Learning Engineer,Tech,Singapore,https://www.linkedin.com/in/katherine-johnson-295,katherine.johnson@yahoo.com,title/employer should drive classification
+P0296,Cameron,Ramirez,,2017,Psychology,Spotify,Head of Growth,Tech,"Stamford, CT",https://www.linkedin.com/in/cameron-ramirez-296,cameron.ramirez@cornell.edu,title/employer should drive classification
+P0297,Carlos,Sanchez,,2017,English,HubSpot,RevOps Analyst,Tech,Singapore,https://www.linkedin.com/in/carlos-sanchez-297,carlos.sanchez297@alumni.cornell.edu,
+P0298,Priya,Perez,,2026,Economics,IBM Consulting,Transformation Consultant,Consulting,"Seattle, WA",https://www.linkedin.com/in/priya-perez-298,priya.perez298@outlook.com,missing field test
+P0299,Sarah,Liu,,2014,Business,Merck,Regulatory Affairs Associate,Healthcare,"New York, NY",https://www.linkedin.com/in/sarah-liu-299,sarah.liu299@outlook.com,
+P0300,Sydney,Gonzalez,,2013,Mechanical Engineering,,Data Platform Analyst,Tech,"Miami, FL",https://www.linkedin.com/in/sydney-gonzalez-300,sydney.gonzalez300@gmail.com,missing field test
+P0301,Nathan,Wusu,,2026,Government,OpenAI,,Tech,Singapore,https://www.linkedin.com/in/nathan-wusu-301,nathan.wusu35@yahoo.com,title/employer should drive classification
+P0302,Isabella,Muller,,2022,History,Palantir,Forward Deployed Engineer,Tech,"Denver, CO",https://www.linkedin.com/in/isabella-muller-302,isabella.muller@alumni.cornell.edu,
+P0303,Patrick,King,,2019,History,Evercore,M&A Analyst II,Banking,"New York, NY",https://www.linkedin.com/in/patrick-king-303,patrick.king303@alumni.cornell.edu,missing field test
+P0304,Hannah,Kowalski,,2015,Business,Benchmrk,Full Stack Developer Intern,Tech,Remote,https://www.linkedin.com/in/hannah-kowalski-304,hannah.kowalski@outlook.com,title/employer should drive classification
+P0305,George,Ivanov,,2018,Applied Math,Jane Street,Trading Analyst,Finance,"Seattle, WA",https://www.linkedin.com/in/george-ivanov-305,george.ivanov15@cornell.edu,title/employer should drive classification
+P0306,Noor,Petrov,,2016,Data Science,Citadel,Quantitative Developer,Finance,"Chicago, IL",https://www.linkedin.com/in/noor-petrov-306,noor.petrov@gmail.com,ambiguous employer formatting
+P0307,Megan,Singh,,2017,Economics,Netflix,Analytics Lead,Tech,"Chicago, IL",,megan.singh10@alumni.cornell.edu,title/employer should drive classification
+P0308,Eric,Johnson,,2023,Information Science,Stripe,Product Operations Manager,Tech,"Los Angeles, CA",https://www.linkedin.com/in/eric-johnson-308,eric.johnson67@gmail.com,ambiguous employer formatting
+P0309,Rebecca,Adams,Reb,2022,Electrical Engineering,UBS,Wealth Management Analyst,Banking,"Los Angeles, CA",https://www.linkedin.com/in/rebecca-adams-309,rebecca.adams@gmail.com,
+P0310,Claire,Johnson,,2021,Civil Engineering,Benchmrk,Full Stack Developer,Tech,"Dallas, TX",https://www.linkedin.com/in/claire-johnson-310,claire.johnson@gmail.com,title/employer should drive classification
+P0311,Megan,Wusu,,2017,History,Salesforce Inc.,Business Systems Analyst,Tech,"Philadelphia, PA",https://www.linkedin.com/in/megan-wusu-311,megan.wusu@alumni.cornell.edu,
+P0312,Neil,Moore,,2021,Business,Moderna,Former Bioinformatics Analyst,Healthcare,"Stamford, CT",https://www.linkedin.com/in/neil-moore-312,neil.moore36@alumni.cornell.edu,
+P0313,Aisha,Park,,2018,Business,Snowflake,,Tech,"New York, NY",https://www.linkedin.com/in/aisha-park-313,aisha.park@cornell.edu,missing field test
+P0314,Andrew,Harris,,2022,Government,Memorial Sloan Kettering,Research Assistant,Healthcare,"Boston, MA",https://www.linkedin.com/in/andrew-harris-314,andrew.harris@gmail.com,ambiguous employer formatting
+P0315,Sydney,Murphy,,2016,Information Science,Nike,Former Growth Marketing Analyst,Marketing,"Philadelphia, PA",https://www.linkedin.com/in/sydney-murphy-315,sydney.murphy@gmail.com,title/employer should drive classification
+P0316,Sam,Ahmed,,2024,Information Science,Uber,Marketplace Operations Analyst II,Operations,"Dallas, TX",https://www.linkedin.com/in/sam-ahmed-316,sam.ahmed@gmail.com,missing field test
+P0317,Arjun,Gonzalez,Arjun,2014,History,netflix,Analytics Lead,Tech,"Stamford, CT",https://www.linkedin.com/in/arjun-gonzalez-317,arjun.gonzalez99@gmail.com,
+P0318,Noor,Shah,,2014,History,KPMG Advisory,Risk Consultant,Consulting,"Dallas, TX",https://www.linkedin.com/in/noor-shah-318,noor.shah41@cornell.edu,missing field test
+P0319,George,Maiello,George,2026,Data Science,Spotify,Artist Marketing Manager,Marketing,"Philadelphia, PA",https://www.linkedin.com/in/george-maiello-319,george.maiello@alumni.cornell.edu,
+P0320,Taylor,Levine,Tay,2012,Data Science,,Program Associate,Legal/Government,"Stamford, CT",https://www.linkedin.com/in/taylor-levine-320,taylor.levine@yahoo.com,
+P0321,Aisha,Moore,,2021,Biology,Cogni DAO,Blockchain Engineer,Tech,"Jersey City, NJ",https://www.linkedin.com/in/aisha-moore-321,aisha.moore321@gmail.com,title/employer should drive classification
+P0322,Drew,Kowalski,,2017,Psychology,Adobe,UX Engineer II,Tech,"London, UK",https://www.linkedin.com/in/drew-kowalski-322,drew.kowalski@gmail.com,
+P0323,Luis,Carter,,2014,Information Science,General Electric ,Operations Leadership Associate II,Operations,Remote,https://www.linkedin.com/in/luis-carter-323,luis.carter74@yahoo.com,
+P0324,Ryan,Jackson,,2013,Biology,OpenAI,Research Engineer,Tech,"San Jose, CA",https://www.linkedin.com/in/ryan-jackson-324,ryan.jackson@outlook.com,title/employer should drive classification
+P0325,Ryan,Lefevre,Rya,2017,Physics,Fidelity Investments,Financial Analyst,Finance,"Seattle, WA",https://www.linkedin.com/in/ryan-lefevre-325,ryan.lefevre325@alumni.cornell.edu,missing field test
+P0326,Jae,Brown,,2021,Operations Research,Cogni DAO,Blockchain Engineer,Tech,"Toronto, Canada",,jae.brown26@outlook.com,missing field test
+P0327,Reese,Miller,,2017,Mechanical Engineering,Microsoft,Cloud Solutions Architect,Tech,"Denver, CO",https://www.linkedin.com/in/reese-miller-327,reese.miller@gmail.com,
+P0328,Arjun,King,,2018,Physics,Palantir,Forward Deployed Engineer,Tech,"San Jose, CA",,arjun.king328@outlook.com,ambiguous employer formatting
+P0329,Sarah,Miller,,2026,Psychology,Khan Academy,Curriculum Operations Associate,Education,"Boston, MA",,sarah.miller329@alumni.cornell.edu,
+P0330,Julia,Murphy,,2026,Computer Science,U.S. Senate,Legislative Assistant,Legal/Government,"San Francisco, CA",https://www.linkedin.com/in/julia-murphy-330,julia.murphy330@yahoo.com,title/employer should drive classification
+P0331,Taylor,Hall,,2016,Information Science,Morgan Stanley,Capital Markets Analyst,Banking,"Miami, FL",https://www.linkedin.com/in/taylor-hall-331,taylor.hall331@gmail.com,ambiguous employer formatting
+P0332,Lucia,Moore,,2018,Statistics,Amass Insights,Data Platform Analyst,Tech,"Jersey City, NJ",https://www.linkedin.com/in/lucia-moore-332,lucia.moore332@cornell.edu,title/employer should drive classification
+P0333,Maria,Moore,,2026,English,Two Sigma,Quantitative Researcher,Finance,"Chicago, IL",https://www.linkedin.com/in/maria-moore-333,maria.moore84@outlook.com,ambiguous employer formatting
+P0334,Amit,Thomas,,2018,Hotel Administration,Oliver Wyman,,Consulting,"Denver, CO",https://www.linkedin.com/in/amit-thomas-334,amit.thomas@cornell.edu,
+P0335,George,Ivanov,,2017,Economics,Google,Software Engineer,Tech,Singapore,https://www.linkedin.com/in/george-ivanov-335,george.ivanov61@yahoo.com,missing field test
+P0336,Victoria,Ali,Vic,2018,Statistics,,Data Platform Analyst,Tech,"Los Angeles, CA",https://www.linkedin.com/in/victoria-ali-336,victoria.ali336@gmail.com,
+P0337,Connor,Young,,2018,,Evercore,M&A Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/connor-young-337,connor.young83@yahoo.com,
+P0338,Connor,Garcia,Con,2020,Information Science,Fidelity Investments,Financial Analyst,Finance,"Los Angeles, CA",https://www.linkedin.com/in/connor-garcia-338,connor.garcia338@alumni.cornell.edu,title/employer should drive classification
+P0339,Diego,Miller,Diego,2013,Business,OpenAI,Research Engineer,Tech,"Jersey City, NJ",https://www.linkedin.com/in/diego-miller-339,diego.miller339@yahoo.com,title/employer should drive classification
+P0340,Isabella,Khan,,2023,Business,McKinsey & Company,Business Analyst,Consulting,"Boston, MA",https://www.linkedin.com/in/isabella-khan-340,isabella.khan340@alumni.cornell.edu,
+P0341,Theo,Cohen,The,2021,Operations Research,Point72,Equity Research Analyst,Finance,"Washington, DC",https://www.linkedin.com/in/theo-cohen-341,theo.cohen99@outlook.com,
+P0342,Theo,Park,The,2012,Industrial and Labor Relations,Citi,Investment Banking Analyst,Banking,Singapore,https://www.linkedin.com/in/theo-park-342,theo.park1@yahoo.com,title/employer should drive classification
+P0343,Lucia,Ali,,2016,,Adobe,,Tech,"Stamford, CT",https://www.linkedin.com/in/lucia-ali-343,lucia.ali@outlook.com,ambiguous employer formatting
+P0344,Casey,Jackson,,2012,Mechanical Engineering,Cogni DAO,Blockchain Engineer,Tech,"London, UK",https://www.linkedin.com/in/casey-jackson-344,casey.jackson344@outlook.com,
+P0345,Isabella,Khan,,2026,Biology,,Research Assistant,Healthcare,"Seattle, WA",https://www.linkedin.com/in/isabella-khan-345,isabella.khan345@yahoo.com,title/employer should drive classification
+P0346,Lauren,Goldberg,,2022,English,Stripe,Product Operations Manager,Tech,"Seattle, WA",https://www.linkedin.com/in/lauren-goldberg-346,lauren.goldberg346@yahoo.com,title/employer should drive classification
+P0347,David,Goldberg,,2023,Civil Engineering,AQR Capital Management,Data Scientist,Finance,Singapore,https://www.linkedin.com/in/david-goldberg-347,david.goldberg30@yahoo.com,missing field test
+P0348,Parker,Brown,,2018,Hotel Administration,U.S. Senate,Legislative Assistant,Legal/Government,"San Francisco, CA",https://www.linkedin.com/in/parker-brown-348,parker.brown@yahoo.com,
+P0349,Michael,Rodriguez,,2017,Biology,UnitedHealth Group,,Healthcare,"Jersey City, NJ",https://www.linkedin.com/in/michael-rodriguez-349,michael.rodriguez@gmail.com,missing field test
+P0350,Katherine,Jones,,2017,Industrial and Labor Relations,Google,Ads Account Strategist,Marketing,"London, UK",https://www.linkedin.com/in/katherine-jones-350,katherine.jones350@gmail.com,
+P0351,Mei,Friedman,,2014,Data Science,Moderna ,Bioinformatics Analyst,Healthcare,"New York, NY",https://www.linkedin.com/in/mei-friedman-351,mei.friedman81@alumni.cornell.edu,ambiguous employer formatting
+P0352,Emma,Kowalski,,2019,Statistics,Point72 Inc.,,Finance,"Philadelphia, PA",https://www.linkedin.com/in/emma-kowalski-352,emma.kowalski28@cornell.edu,missing field test
+P0353,Casey,Sanchez,,2015,Government,,Blockchain Engineer,Tech,Singapore,https://www.linkedin.com/in/casey-sanchez-353,casey.sanchez353@yahoo.com,ambiguous employer formatting
+P0354,Arjun,Taylor,,2022,,Westchester High School,Former Teacher,Education,"Seattle, WA",https://www.linkedin.com/in/arjun-taylor-354,arjun.taylor14@gmail.com,missing field test
+P0355,Santiago,Clark,,2013,Data Science,OpenAI,Research Engineer,Tech,"Chicago, IL",https://www.linkedin.com/in/santiago-clark-355,santiago.clark2@gmail.com,
+P0356,Neha,Hall,,2014,Economics,Two Sigma,Quantitative Researcher,Finance,"Denver, CO",https://www.linkedin.com/in/neha-hall-356,neha.hall356@cornell.edu,
+P0357,Sofia,Miller,,2022,Industrial and Labor Relations,RUNE TECHNOLOGIES,Systems Engineer,Tech,"Dallas, TX",https://www.linkedin.com/in/sofia-miller-357,sofia.miller26@cornell.edu,
+P0358,Li,Taylor,,2019,Civil Engineering, Launch Potato,SEO Product Analyst,Tech,"Austin, TX",https://www.linkedin.com/in/li-taylor-358,li.taylor358@outlook.com,missing field test
+P0359,Lauren,Adams,,2016,Psychology,UBS,Former Wealth Management Analyst,Banking,"Dallas, TX",https://www.linkedin.com/in/lauren-adams-359,lauren.adams359@yahoo.com,
+P0360,Jamie,Hill,,2019,Biology,IBM Consulting,Transformation Consultant,Consulting,"Seattle, WA",https://www.linkedin.com/in/jamie-hill-360,jamie.hill360@yahoo.com,
+P0361,Yusuf,Walker,,2013,Physics,Khan Academy,Curriculum Operations Associate,Education,"Dallas, TX",https://www.linkedin.com/in/yusuf-walker-361,yusuf.walker361@yahoo.com,ambiguous employer formatting
+P0362,Quinn,Kowalski,,2013,Applied Math,PwC Strategy& ,Management Consultant,Consulting,"Chicago, IL",https://www.linkedin.com/in/quinn-kowalski-362,quinn.kowalski@gmail.com,ambiguous employer formatting
+P0363,Andrew,Ivanov,,2026,Electrical Engineering,Citi,Investment Banking Analyst,Banking,"London, UK",https://www.linkedin.com/in/andrew-ivanov-363,andrew.ivanov12@cornell.edu,
+P0364,Sean,Taylor,,2017,Mechanical Engineering,Jane Street,,Finance,"Denver, CO",https://www.linkedin.com/in/sean-taylor-364,sean.taylor56@outlook.com,
+P0365,Ibrahim,Carter,Ibrahim,2018,Psychology,Evercore,M&A Analyst,Banking,"London, UK",https://www.linkedin.com/in/ibrahim-carter-365,ibrahim.carter@outlook.com,
+P0366,Neil,Murphy,,2025,Industrial and Labor Relations,Mount Sinai Health System,Research Coordinator,Healthcare,"Dallas, TX",https://www.linkedin.com/in/neil-murphy-366,neil.murphy366@yahoo.com,
+P0367,Andrew,Rivera,,2023,English,,Investment Banking Analyst,Banking,"Miami, FL",https://www.linkedin.com/in/andrew-rivera-367,andrew.rivera367@yahoo.com,
+P0368,Nicole,Mitchell,,2025,Data Science,ACLU,Program Associate,Legal/Government,"Toronto, Canada",https://www.linkedin.com/in/nicole-mitchell-368,nicole.mitchell@yahoo.com,ambiguous employer formatting
+P0369,Elena,Martinez,,2020,Computer Science,UBS,Wealth Management Analyst,Banking,Singapore,https://www.linkedin.com/in/elena-martinez-369,elena.martinez74@alumni.cornell.edu,missing field test
+P0370,Hannah,Perez,Han,2021,Business,Citi ,Investment Banking Analyst,Banking,"Jersey City, NJ",,hannah.perez95@cornell.edu,
+P0371,Nina,Walsh,,2023,Mechanical Engineering,Bain & Company Inc.,Associate Consultant,Consulting,"Dallas, TX",https://www.linkedin.com/in/nina-walsh-371,nina.walsh@yahoo.com,title/employer should drive classification
+P0372,David,Walker,,2021,Operations Research,Boston Consulting Group,Associate,Consulting,Singapore,https://www.linkedin.com/in/david-walker-372,david.walker372@alumni.cornell.edu,ambiguous employer formatting
+P0373,Noah,Lefevre,,2019,Biology,Mount Sinai Health System,Research Coordinator,Healthcare,Singapore,https://www.linkedin.com/in/noah-lefevre-373,noah.lefevre373@yahoo.com,title/employer should drive classification
+P0374,Raj,Wong,,2013,History,Morgan Stanley,Capital Markets Analyst,Banking,"Philadelphia, PA",https://www.linkedin.com/in/raj-wong-374,raj.wong79@alumni.cornell.edu,missing field test
+P0375,Drew,Allen,,2021,Applied Math,Accenture,Technology Consultant,Consulting,"San Jose, CA",https://www.linkedin.com/in/drew-allen-375,drew.allen41@outlook.com,
+P0376,Jordan,Kim,,2012,Computer Science,JOHNSON & JOHNSON,Product Analyst,Healthcare,"Dallas, TX",https://www.linkedin.com/in/jordan-kim-376,jordan.kim@yahoo.com,
+P0377,Parker,Lopez,,2014,Mechanical Engineering,Millennium Management,Risk Analyst,Finance,"Washington, DC",https://www.linkedin.com/in/parker-lopez-377,parker.lopez@alumni.cornell.edu,title/employer should drive classification
+P0378,Tyler,Adams,,2012,Data Science,Delta Air Lines,Revenue Management Analyst,Operations,"Miami, FL",https://www.linkedin.com/in/tyler-adams-378,tyler.adams@gmail.com,
+P0379,Victoria,Wilson,,2023,Data Science,UBS,Wealth Management Analyst,Banking,"Boston, MA",,victoria.wilson74@gmail.com,missing field test
+P0380,Natalie,Martin,,2026,Biology,Westchester High School,TEACHER,Education,"Jersey City, NJ",,natalie.martin380@alumni.cornell.edu,title/employer should drive classification
+P0381,Neha,Lewis,,2017,Government, Ogilvy,Account Strategist,Marketing,"Denver, CO",https://www.linkedin.com/in/neha-lewis-381,neha.lewis47@gmail.com,missing field test
+P0382,George,Nguyen,George,2018,Mechanical Engineering,,SEO Product Analyst,Tech,"Philadelphia, PA",https://www.linkedin.com/in/george-nguyen-382,george.nguyen@alumni.cornell.edu,ambiguous employer formatting
+P0383,Neil,Muller,,2025,Industrial and Labor Relations,Google,Software Engineer,Tech,"New York, NY",,neil.muller44@gmail.com,
+P0384,Maria,Levine,,2026,Economics,Bank of America,Corporate Banking Analyst,Banking,"San Francisco, CA",https://www.linkedin.com/in/maria-levine-384,maria.levine@alumni.cornell.edu,title/employer should drive classification
+P0385,Riley,Young,,2024,Mechanical Engineering,Tesla,Manufacturing Engineer,Operations,"Toronto, Canada",https://www.linkedin.com/in/riley-young-385,riley.young@yahoo.com,
+P0386,Mason,Rodriguez,,2017,Mechanical Engineering,Barclays,Sales and Trading Analyst,Banking,"Jersey City, NJ",https://www.linkedin.com/in/mason-rodriguez-386,mason.rodriguez@cornell.edu,
+P0387,Parker,Scott,,2026,Physics,Microsoft,Cloud Solutions Architect,Tech,"San Francisco, CA",https://www.linkedin.com/in/parker-scott-387,parker.scott@yahoo.com,
+P0388,Alex,Smith,,2024,Civil Engineering,Ogilvy,Account Strategist,Marketing,"Chicago, IL",https://www.linkedin.com/in/alex-smith-388,alex.smith388@cornell.edu,title/employer should drive classification
+P0389,Diego,Jones,,2016,Psychology,Spotify,Head of Growth,Tech,"London, UK",,diego.jones@outlook.com,
+P0390,Jason,Rossi,,2024,Operations Research,ACLU,Program Associate,Legal/Government,Singapore,https://www.linkedin.com/in/jason-rossi-390,jason.rossi@outlook.com,
+P0391,Noah,Wong,,2026,History,UnitedHealth Group,Healthcare Analyst,Healthcare,"Washington, DC",https://www.linkedin.com/in/noah-wong-391,noah.wong63@gmail.com,
+P0392,Neil,Liu,,2024,Mechanical Engineering,Datadog,Backend Engineer,Tech,"Atlanta, GA",https://www.linkedin.com/in/neil-liu-392,neil.liu392@outlook.com,ambiguous employer formatting
+P0393,Jamie,Ali,,2018,Psychology,Deloitte Consulting,Former Strategy Consultant,Consulting,"Chicago, IL",https://www.linkedin.com/in/jamie-ali-393,jamie.ali393@outlook.com,missing field test
+P0394,Casey,Dubois,,2015,Electrical Engineering,apple,Machine Learning Engineer,Tech,"Dallas, TX",https://www.linkedin.com/in/casey-dubois-394,casey.dubois22@yahoo.com,
+P0395,Patrick,Levine,,2023,Hotel Administration,Ogilvy,Account Strategist,Marketing,"Austin, TX",https://www.linkedin.com/in/patrick-levine-395,patrick.levine@alumni.cornell.edu,
+P0396,Alex,Singh,,2018,Civil Engineering,Tesla,Former Manufacturing Engineer,Operations,"Boston, MA",https://www.linkedin.com/in/alex-singh-396,alex.singh11@outlook.com,
+P0397,Ethan,Taylor,,2014,Industrial and Labor Relations,Merck,,Healthcare,"Jersey City, NJ",https://www.linkedin.com/in/ethan-taylor-397,ethan.taylor397@gmail.com,ambiguous employer formatting
+P0398,Emma,Mitchell,,2023,Government,,Artist Marketing Manager,Marketing,"San Jose, CA",,emma.mitchell398@alumni.cornell.edu,
+P0399,Omar,Hernandez,,2017,Information Science,Two Sigma,Quantitative Researcher,Finance,"Boston, MA",https://www.linkedin.com/in/omar-hernandez-399,omar.hernandez@alumni.cornell.edu,missing field test
+P0400,Mei,Rodriguez,,2022,Civil Engineering,IBM Consulting,Transformation Consultant,Consulting,"Jersey City, NJ",https://www.linkedin.com/in/mei-rodriguez-400,mei.rodriguez97@outlook.com,ambiguous employer formatting
+P0401,Leah,Shah,,2019,History,Accenture,Technology Consultant Intern,Consulting,"Stamford, CT",https://www.linkedin.com/in/leah-shah-401,leah.shah401@alumni.cornell.edu,
+P0402,Chris,Hernandez,,2023,Operations Research,Launch Potato,SEO Product Analyst,Tech,Singapore,https://www.linkedin.com/in/chris-hernandez-402,chris.hernandez67@outlook.com,
+P0403,Neha,Taylor,,2025,Statistics,IBM Consulting,,Consulting,"San Jose, CA",https://www.linkedin.com/in/neha-taylor-403,neha.taylor403@alumni.cornell.edu,missing field test
+P0404,Noor,Goldberg,,2014,Data Science,UBS,Wealth Management Analyst,Banking,"Austin, TX",https://www.linkedin.com/in/noor-goldberg-404,noor.goldberg@cornell.edu,ambiguous employer formatting
+P0405,Sofia,Petrov,,2023,Operations Research,KPMG Advisory,Risk Consultant,Consulting,"Washington, DC",https://www.linkedin.com/in/sofia-petrov-405,sofia.petrov41@gmail.com,ambiguous employer formatting
+P0406,Emma,Clark,,2014,History,Evercore,M&A Analyst Intern,Banking,"Denver, CO",https://www.linkedin.com/in/emma-clark-406,emma.clark406@gmail.com,ambiguous employer formatting
+P0407,Aisha,Smith,,2026,Electrical Engineering,Delta Air Lines,Revenue Management Analyst,Operations,"Jersey City, NJ",https://www.linkedin.com/in/aisha-smith-407,aisha.smith407@yahoo.com,missing field test
+P0408,Riley,Moore,Ril,2013,Government,,Product Manager,Healthcare,"San Francisco, CA",https://www.linkedin.com/in/riley-moore-408,riley.moore75@outlook.com,ambiguous employer formatting
+P0409,Liam,Williams,,2019,Government,NYC Department of Education,Program Coordinator,Education,"Dallas, TX",https://www.linkedin.com/in/liam-williams-409,liam.williams409@gmail.com,title/employer should drive classification
+P0410,Justin,Roberts,,2013,Applied Math,Benchmrk,Full Stack Developer,Tech,"Toronto, Canada",https://www.linkedin.com/in/justin-roberts-410,justin.roberts410@alumni.cornell.edu,ambiguous employer formatting
+P0411,Theo,Singh,,2025,English,Spotify,Artist Marketing Manager,Marketing,"Atlanta, GA",,theo.singh411@yahoo.com,
+P0412,Sarah,Singh,Sar,2016,History,DigitalOcean,Cloud Support Engineer,Tech,Singapore,,sarah.singh412@cornell.edu,title/employer should drive classification
+P0413,Mason,Brown,,2013,Electrical Engineering,Fidelity Investments,Financial Analyst,Finance,"London, UK",https://www.linkedin.com/in/mason-brown-413,mason.brown@outlook.com,missing field test
+P0414,Jae,Campbell,,2023,Mechanical Engineering,J.P. Morgan,Investment Banking Associate,Banking,"Philadelphia, PA",https://www.linkedin.com/in/jae-campbell-414,jae.campbell414@yahoo.com,ambiguous employer formatting
+P0415,Julia,Ahmed,,2026,Psychology,Bridgewater Associates,Research Associate,Finance,"San Francisco, CA",https://www.linkedin.com/in/julia-ahmed-415,julia.ahmed@yahoo.com,
+P0416,Emma,Gonzalez,,2024,Electrical Engineering,DigitalOcean,Cloud Support Engineer,Tech,"Miami, FL",https://www.linkedin.com/in/emma-gonzalez-416,emma.gonzalez13@cornell.edu,
+P0417,Jordan,Moore,,2013,Applied Math,Boston Consulting Group,Associate,Consulting,"Chicago, IL",https://www.linkedin.com/in/jordan-moore-417,jordan.moore72@outlook.com,
+P0418,Brandon,Khan,,2023,Psychology,Ogilvy,,Marketing,"Chicago, IL",https://www.linkedin.com/in/brandon-khan-418,brandon.khan418@yahoo.com,ambiguous employer formatting
+P0419,Iris,Thomas,,2013,Hotel Administration,Pfizer,Clinical Data Analyst,Healthcare,"Boston, MA",,iris.thomas419@alumni.cornell.edu,
+P0420,Lucia,Cohen,,2012,Mechanical Engineering,Meta,Product Manager,Tech,"Boston, MA",https://www.linkedin.com/in/lucia-cohen-420,lucia.cohen@outlook.com,ambiguous employer formatting
+P0421,Chris,Jackson,Chris,2024,,Pfizer,Clinical Data Analyst,Healthcare,"Austin, TX",https://www.linkedin.com/in/chris-jackson-421,chris.jackson13@gmail.com,
+P0422,Olivia,Torres,,2026,English,,Risk Analyst,Finance,Singapore,https://www.linkedin.com/in/olivia-torres-422,olivia.torres422@yahoo.com,
+P0423,Eric,Shah,,2020,Operations Research,Cogni DAO,Blockchain Engineer,Tech,Singapore,https://www.linkedin.com/in/eric-shah-423,eric.shah72@cornell.edu,
+P0424,Reese,Roberts,,2020,Hotel Administration,Rune Technologies,Systems Engineer,Tech,"Denver, CO",https://www.linkedin.com/in/reese-roberts-424,reese.roberts@alumni.cornell.edu,title/employer should drive classification
+P0425,Isabella,Johnson,,2013,Mechanical Engineering,Delta Air Lines,Revenue Management Analyst,Operations,"Chicago, IL",https://www.linkedin.com/in/isabella-johnson-425,isabella.johnson14@yahoo.com,ambiguous employer formatting
+P0426,Megan,Sanchez,,2016,Physics,Netflix,Analytics Lead,Tech,"Jersey City, NJ",https://www.linkedin.com/in/megan-sanchez-426,megan.sanchez426@alumni.cornell.edu,
+P0427,Chloe,Scott,,2012,Mechanical Engineering,Skadden,Legal Assistant,Legal/Government,"San Francisco, CA",https://www.linkedin.com/in/chloe-scott-427,chloe.scott@alumni.cornell.edu,ambiguous employer formatting
+P0428,Claire,Martin,,2019,Industrial and Labor Relations,IBM Consulting,Transformation Consultant,Consulting,"Los Angeles, CA",https://www.linkedin.com/in/claire-martin-428,claire.martin63@alumni.cornell.edu,missing field test
+P0429,Neha,Williams,,2025,Biology,Jane Street,Former Trading Analyst,Finance,"Toronto, Canada",https://www.linkedin.com/in/neha-williams-429,neha.williams23@gmail.com,missing field test
+P0430,Victoria,Wong,,2022,History,Target,Operations Manager,Operations,"Stamford, CT",https://www.linkedin.com/in/victoria-wong-430,victoria.wong@alumni.cornell.edu,
+P0431,Natalie,Muller,,2012,Physics,Stripe,Product Operations Manager,Tech,"San Francisco, CA",https://www.linkedin.com/in/natalie-muller-431,natalie.muller45@cornell.edu,
+P0432,Megan,Carter,,2022,Electrical Engineering,DigitalOcean Inc.,Cloud Support Engineer,Tech,"Jersey City, NJ",https://www.linkedin.com/in/megan-carter-432,megan.carter@gmail.com,missing field test
+P0433,Claire,Jones,,2023,Civil Engineering,Palantir,Forward Deployed Engineer,Tech,"Jersey City, NJ",,claire.jones49@cornell.edu,title/employer should drive classification
+P0434,Victoria,Gonzalez,,2014,,Bain & Company,Associate Consultant,Consulting,"Denver, CO",https://www.linkedin.com/in/victoria-gonzalez-434,victoria.gonzalez434@alumni.cornell.edu,
+P0435,Grace,King,Grace,2013,Physics,Nike ,Growth Marketing Analyst,Marketing,"Atlanta, GA",https://www.linkedin.com/in/grace-king-435,grace.king435@yahoo.com,title/employer should drive classification
+P0436,Maria,Hill,,2016,,Microsoft,Cloud Solutions Architect,Tech,"San Jose, CA",https://www.linkedin.com/in/maria-hill-436,maria.hill@yahoo.com,
+P0437,Ethan,Ahmed,,2026,Physics,Google,Ads Account Strategist,Marketing,"San Francisco, CA",https://www.linkedin.com/in/ethan-ahmed-437,ethan.ahmed@cornell.edu,ambiguous employer formatting
+P0438,George,Hill,,2025,Hotel Administration,HubSpot,RevOps Analyst,Tech,"Miami, FL",https://www.linkedin.com/in/george-hill-438,george.hill33@outlook.com,
+P0439,Reese,Martin,,2018,Hotel Administration,Datadog,Backend Engineer,Tech,"San Francisco, CA",https://www.linkedin.com/in/reese-martin-439,reese.martin@cornell.edu,missing field test
+P0440,Lucia,Bianchi,,2017,,NYC Department of Education,Program Coordinator,Education,"Denver, CO",https://www.linkedin.com/in/lucia-bianchi-440,lucia.bianchi47@alumni.cornell.edu,
+P0441,Henry,Anderson,,2024,English,Morgan Stanley,Capital Markets Analyst,Banking,"Miami, FL",https://www.linkedin.com/in/henry-anderson-441,henry.anderson31@gmail.com,
+P0442,Lauren,Schmidt,,2014,Applied Math,NYC Department of Education,Program Coordinator,Education,"Miami, FL",https://www.linkedin.com/in/lauren-schmidt-442,lauren.schmidt@cornell.edu,title/employer should drive classification
+P0443,Reese,Green,,2014,Psychology,Millennium Management,Risk Analyst,Finance,Singapore,https://www.linkedin.com/in/reese-green-443,reese.green3@cornell.edu,
+P0444,Avery,Walker,,2022,Mechanical Engineering,HubSpot,RevOps Analyst,Tech,"Stamford, CT",https://www.linkedin.com/in/avery-walker-444,avery.walker@alumni.cornell.edu,title/employer should drive classification
+P0445,Rachel,Lopez,Rac,2022,Government,Delta Air Lines,Revenue Management Analyst,Operations,"London, UK",https://www.linkedin.com/in/rachel-lopez-445,rachel.lopez445@cornell.edu,title/employer should drive classification
+P0446,Ibrahim,Shah,,2017,Hotel Administration,NYC Department of Education,Program Coordinator,Education,"Dallas, TX",https://www.linkedin.com/in/ibrahim-shah-446,ibrahim.shah446@yahoo.com,title/employer should drive classification
+P0447,Ana,White,,2017,Physics,Pfizer,Clinical Data Analyst,Healthcare,"Seattle, WA",https://www.linkedin.com/in/ana-white-447,ana.white67@outlook.com,ambiguous employer formatting
+P0448,Julia,Park,,2024,Electrical Engineering,Spotify,Artist Marketing Manager,Marketing,"Los Angeles, CA",https://www.linkedin.com/in/julia-park-448,julia.park448@cornell.edu,title/employer should drive classification
+P0449,Mason,Williams,,2019,Applied Math,Tesla,Manufacturing Engineer,Operations,"Miami, FL",https://www.linkedin.com/in/mason-williams-449,mason.williams449@outlook.com,
+P0450,Aisha,Lopez,,2024,Industrial and Labor Relations,Citi,,Banking,Singapore,https://www.linkedin.com/in/aisha-lopez-450,aisha.lopez450@outlook.com,missing field test
+P0451,Nina,Wong,,2018,Business,Teach For America,Corps Member,Education,"London, UK",https://www.linkedin.com/in/nina-wong-451,nina.wong451@gmail.com,ambiguous employer formatting
+P0452,Justin,Schmidt,,2023,Biology,,Quantitative Researcher,Finance,"Los Angeles, CA",https://www.linkedin.com/in/justin-schmidt-452,justin.schmidt95@alumni.cornell.edu,missing field test
+P0453,Cameron,Miller,,2024,,Palantir,Forward Deployed Engineer,Tech,"San Francisco, CA",,cameron.miller453@yahoo.com,missing field test
+P0454,Justin,Taylor,,2026,Government,World Bank,Research Analyst,Legal/Government,"Toronto, Canada",https://www.linkedin.com/in/justin-taylor-454,justin.taylor91@cornell.edu,title/employer should drive classification
+P0455,Julia,Garcia,,2018,Electrical Engineering,Amazon Web Services,Data Engineer,Tech,"Miami, FL",https://www.linkedin.com/in/julia-garcia-455,julia.garcia455@cornell.edu,title/employer should drive classification
+P0456,Lena,Murphy,,2012,Applied Math,Delta Air Lines,Revenue Management Analyst,Operations,"Chicago, IL",,lena.murphy456@outlook.com,missing field test
+P0457,Zachary,Anderson,,2019,Industrial and Labor Relations,Launch Potato,SEO Product Analyst,Tech,Singapore,https://www.linkedin.com/in/zachary-anderson-457,zachary.anderson457@outlook.com,
+P0458,Emma,Perez,,2020,Physics,OpenAI,Research Engineer,Tech,"Washington, DC",https://www.linkedin.com/in/emma-perez-458,emma.perez458@gmail.com,
+P0459,Grace,Thomas,,2019,Civil Engineering,Walmart,Supply Chain Analyst,Operations,"Toronto, Canada",https://www.linkedin.com/in/grace-thomas-459,grace.thomas77@cornell.edu,
+P0460,Maria,Petrov,,2021,Operations Research,McKinsey & Company,Business Analyst,Consulting,"Los Angeles, CA",https://www.linkedin.com/in/maria-petrov-460,maria.petrov@cornell.edu,
+P0461,Eric,Lopez,,2014,Biology,Apollo Global Management,Private Equity Analyst,Finance,Remote,https://www.linkedin.com/in/eric-lopez-461,eric.lopez461@outlook.com,title/employer should drive classification
+P0462,Omar,Nowak,,2026,Biology,PepsiCo,Consumer Insights Analyst,Marketing,Singapore,https://www.linkedin.com/in/omar-nowak-462,omar.nowak@yahoo.com,title/employer should drive classification
+P0463,Zachary,Wusu,,2023,Operations Research,Publicis Groupe,Brand Strategist Intern,Marketing,Singapore,https://www.linkedin.com/in/zachary-wusu-463,zachary.wusu463@yahoo.com,title/employer should drive classification
+P0464,Rachel,Martin,,2021,Information Science,Moelis & Company,Investment Banking Analyst,Banking,"Stamford, CT",,rachel.martin@gmail.com,
+P0465,Madison,Dubois,Madison,2022,Industrial and Labor Relations,J.P. Morgan,Investment Banking Associate,Banking,"Washington, DC",https://www.linkedin.com/in/madison-dubois-465,madison.dubois@alumni.cornell.edu,title/employer should drive classification
+P0466,Julia,Muller,,2026,Business,PepsiCo,Consumer Insights Analyst,Marketing,"Los Angeles, CA",https://www.linkedin.com/in/julia-muller-466,julia.muller34@yahoo.com,
+P0467,Alex,Chen,,2023,,goldman sachs,Investment Banking Analyst,Banking,Singapore,https://www.linkedin.com/in/alex-chen-467,alex.chen47@yahoo.com,title/employer should drive classification
+P0468,Nina,Moore,Nin,2022,Operations Research,OGILVY,Account Strategist,Marketing,"Austin, TX",https://www.linkedin.com/in/nina-moore-468,nina.moore@yahoo.com,missing field test
+P0469,Katherine,Shah,,2012,Industrial and Labor Relations,cornell university,Research Assistant,Education,"Jersey City, NJ",https://www.linkedin.com/in/katherine-shah-469,katherine.shah469@cornell.edu,
+P0470,Luis,Wong,,2016,Information Science,Bain & Company,Associate Consultant,Consulting,Singapore,https://www.linkedin.com/in/luis-wong-470,luis.wong76@yahoo.com,
+P0471,Victoria,Robinson,Victoria,2018,Civil Engineering,Uber,Marketplace Operations Analyst,Operations,"Boston, MA",https://www.linkedin.com/in/victoria-robinson-471,victoria.robinson58@cornell.edu,title/employer should drive classification
+P0472,Neil,Harris,,2026,,OpenAI,Research Engineer,Tech,"Toronto, Canada",https://www.linkedin.com/in/neil-harris-472,neil.harris93@cornell.edu,title/employer should drive classification
+P0473,Maria,Campbell,,2023,Economics,World Bank,Research Analyst,Legal/Government,Singapore,https://www.linkedin.com/in/maria-campbell-473,maria.campbell21@outlook.com,title/employer should drive classification
+P0474,Natalie,Hill,,2022,Business,Benchmrk,Full Stack Developer,Tech,"Washington, DC",https://www.linkedin.com/in/natalie-hill-474,natalie.hill@yahoo.com,missing field test
+P0475,Lucas,Thomas,,2024,History,Barclays,Sales and Trading Analyst,Banking,"Miami, FL",https://www.linkedin.com/in/lucas-thomas-475,lucas.thomas78@yahoo.com,
+P0476,Connor,Anderson,Connor,2012,English,CVS Health,Product Manager,Healthcare,"Boston, MA",https://www.linkedin.com/in/connor-anderson-476,connor.anderson476@gmail.com,ambiguous employer formatting
+P0477,George,Walsh,,2013,Applied Math,CVS Health,Product Manager,Healthcare,"Toronto, Canada",https://www.linkedin.com/in/george-walsh-477,george.walsh477@gmail.com,missing field test
+P0478,Sam,Wright,Sam,2018,Statistics,Boston Consulting Group,Associate,Consulting,"Chicago, IL",https://www.linkedin.com/in/sam-wright-478,sam.wright478@alumni.cornell.edu,
+P0479,Morgan,Liu,,2024,Business,NYC Department of Education,Program Coordinator II,Education,"London, UK",,morgan.liu85@gmail.com,ambiguous employer formatting
+P0480,Luis,Levine,,2023,Government,Walmart,Supply Chain Analyst,Operations,"Philadelphia, PA",,luis.levine68@cornell.edu,ambiguous employer formatting
+P0481,Ana,Clark,,2024,Biology,CVS Health,Product Manager,Healthcare,"Los Angeles, CA",https://www.linkedin.com/in/ana-clark-481,ana.clark5@gmail.com,missing field test
+P0482,Lena,Taylor,,2017,Business,ZS Associates,Decision Analytics Associate,Consulting,"New York, NY",,lena.taylor482@yahoo.com,ambiguous employer formatting
+P0483,Neil,Shah,,2017,Mechanical Engineering,PepsiCo,Consumer Insights Analyst,Marketing,"San Francisco, CA",https://www.linkedin.com/in/neil-shah-483,neil.shah483@gmail.com,
+P0484,Megan,Walker,,2020,,Teach For America,Corps Member,Education,"Austin, TX",https://www.linkedin.com/in/megan-walker-484,megan.walker86@cornell.edu,
+P0485,Arjun,Young,Arjun,2018,Hotel Administration,Merck ,Regulatory Affairs Associate,Healthcare,"Seattle, WA",https://www.linkedin.com/in/arjun-young-485,arjun.young485@alumni.cornell.edu,ambiguous employer formatting
+P0486,Sofia,Goldberg,,2022,Hotel Administration,Evercore,M&A Analyst,Banking,"Toronto, Canada",https://www.linkedin.com/in/sofia-goldberg-486,sofia.goldberg486@alumni.cornell.edu,ambiguous employer formatting
+P0487,Victoria,Khan,Vic,2012,Business,Apple,Machine Learning Engineer,Tech,"Stamford, CT",https://www.linkedin.com/in/victoria-khan-487,victoria.khan487@gmail.com,
+P0488,Hannah,Garcia,,2012,Operations Research,Adobe,UX Engineer,Tech,"Chicago, IL",https://www.linkedin.com/in/hannah-garcia-488,hannah.garcia488@alumni.cornell.edu,missing field test
+P0489,Alex,Thomas,,2026,Government,Rune Technologies,SYSTEMS ENGINEER,Tech,Remote,https://www.linkedin.com/in/alex-thomas-489,alex.thomas@yahoo.com,
+P0490,Elena,Park,,2018,Statistics,Fidelity Investments,Financial Analyst,Finance,Remote,https://www.linkedin.com/in/elena-park-490,elena.park490@gmail.com,missing field test
+P0491,Layla,Brown,Layla,2013,Applied Math,Mount Sinai Health System,Research Coordinator,Healthcare,"Dallas, TX",https://www.linkedin.com/in/layla-brown-491,layla.brown73@gmail.com,ambiguous employer formatting
+P0492,Taylor,Thomas,Taylor,2025,Physics,Khan Academy,Curriculum Operations Associate,Education,"Toronto, Canada",https://www.linkedin.com/in/taylor-thomas-492,taylor.thomas492@yahoo.com,title/employer should drive classification
+P0493,Taylor,Baker,,2013,Mechanical Engineering,Fidelity Investments,Financial Analyst,Finance,"Stamford, CT",https://www.linkedin.com/in/taylor-baker-493,taylor.baker493@outlook.com,
+P0494,Sofia,Perez,,2018,Government,Benchmrk Inc.,Full Stack Developer,Tech,"Miami, FL",https://www.linkedin.com/in/sofia-perez-494,sofia.perez@gmail.com,ambiguous employer formatting
+P0495,Henry,O'Brien,,2020,Hotel Administration,Khan Academy,Curriculum Operations Associate,Education,"Seattle, WA",https://www.linkedin.com/in/henry-obrien-495,henry.obrien@alumni.cornell.edu,
+P0496,Sofia,Gonzalez,,2013,English,LEK Consulting,Associate Consultant,Consulting,"Los Angeles, CA",https://www.linkedin.com/in/sofia-gonzalez-496,sofia.gonzalez48@outlook.com,ambiguous employer formatting
+P0497,Tyler,Moretti,,2014,Computer Science,Khan Academy,Former Curriculum Operations Associate,Education,"San Francisco, CA",https://www.linkedin.com/in/tyler-moretti-497,tyler.moretti35@alumni.cornell.edu,missing field test
+P0498,Kevin,Wusu,,2013,Electrical Engineering,Spotify,Artist Marketing Manager,Marketing,"Seattle, WA",https://www.linkedin.com/in/kevin-wusu-498,kevin.wusu18@gmail.com,
+P0499,Noah,Ivanov,,2024,Industrial and Labor Relations,Skadden,Legal Assistant,Legal/Government,"Miami, FL",https://www.linkedin.com/in/noah-ivanov-499,noah.ivanov@cornell.edu,title/employer should drive classification
+P0500,Taylor,Moore,Taylor,2026,Civil Engineering,,,Legal/Government,Remote,https://www.linkedin.com/in/taylor-moore-500,taylor.moore@gmail.com,title/employer should drive classification

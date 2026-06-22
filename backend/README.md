@@ -88,3 +88,30 @@ The test suite in `backend/tests/test_api.py` creates temporary CSV/XLSX files
 in memory, uploads them through the Flask API, and verifies preview, summary,
 ask, safety, and dataset-isolation behavior. It does not depend on existing
 files in `backend/uploads` and does not require a real OpenAI API key.
+
+## Running Evals
+
+Run the larger answer-quality eval harness from `backend/`:
+
+```bash
+python -m evals.run_evals
+```
+
+The runner uploads a sanitized copy of `evals/datasets/synthetic_alumni_500.csv`
+through the Flask test client, removes `expected_*` and `eval_*` gold-label
+columns from the app-facing CSV, asks the cases in `evals/cases.jsonl`, and
+writes `evals/results/latest.json` plus `evals/results/latest.md`.
+
+Modes:
+
+```bash
+python -m evals.run_evals --mode offline
+python -m evals.run_evals --mode hybrid
+python -m evals.run_evals --mode classifier-live
+python -m evals.run_evals --mode smoke-live
+```
+
+`offline` disables OpenAI for every case. Other modes still follow per-case
+execution metadata, so deterministic cases can disallow model calls while broad
+product or direct-classifier cases can allow or require them. Reports include
+model-call tracing, answer source, scoring source, and failure categories.

@@ -65,6 +65,12 @@ htmlcov/
 nosetests.xml
 coverage.xml
 
+# Generated evaluation artifacts
+backend/evals/generated/*
+backend/evals/results/*
+!backend/evals/generated/.gitkeep
+!backend/evals/results/.gitkeep
+
 # =========================
 # Frontend / Node
 # =========================
@@ -112,3 +118,8 @@ logs/
 *.orig
 *.rej
 *.swp
+*.patch
+
+# Duplicate local evaluation source files
+/synthetic_alumni_500.csv
+/synthetic_alumni_500_README.md

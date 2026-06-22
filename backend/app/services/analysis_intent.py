@@ -1,11 +1,14 @@
 import difflib
 import json
+import logging
 import os
 import re
 
 from app.services import ai_service
 from app.services.analysis_executor import MAX_OPERATIONS
 from app.services.industry_taxonomies import classify_people_question, get_taxonomy
+from app.utils.ai_helpers import extract_response_text, parse_json_response
+from app.utils.text_utils import clamp_limit, contains_word_or_phrase, normalize_text
 
 
 INTENTS = {
@@ -22,6 +25,13 @@ TARGET_ENTITIES = {"rows", "columns", "groups", "dataset"}
 OUTPUT_FORMATS = {"table", "metrics", "ranked_list", "markdown"}
 FILTER_MATCH_MODES = {"contains_any", "contains_all", "equals"}
 AGGREGATION_OPERATIONS = {"count", "sum", "average", "mean", "avg", "summary", "numeric_summary", "correlation", "date_summary"}
+DETERMINISTIC_FILTER_OPERATIONS = {
+    "filter_contains",
+    "filter_equals",
+    "filter_missing",
+    "contains_any",
+    "contains_all",
+}
 
 SEMANTIC_COLUMN_SYNONYMS = {
     "first_name": ["first name", "firstname", "first_name", "given name"],
@@ -116,6 +126,8 @@ TECH_KNOWN_ENTITIES = [
 ]
 
 ALUMNI_TERMS = ["alumni", "alum", "alums"]
+ROW_FILTER_QUERY_HINTS = ALUMNI_TERMS + ["who", "which", "people", "person", "show", "list", "find", "how many"]
+GENERIC_DOMAIN_TEXT_SEARCH_TERMS = {"aerospace"}
 ALUMNI_TECH_FALLBACK_TERMS = [
     "working in tech",
     "work in tech",
@@ -273,12 +285,13 @@ def infer_analysis_intent(question, dataset_context):
             tools=[],
         )
     except Exception as exc:
+        logging.getLogger(__name__).warning("Intent model call failed, using heuristic fallback: %s", exc)
         intent = heuristic_intent(question, dataset_context)
         intent["assumptions"].append(f"Intent model unavailable; used deterministic inference. {exc}")
         return intent, True, ""
 
     try:
-        parsed = _parse_json(_extract_response_text(response))
+        parsed = parse_json_response(extract_response_text(response))
     except ValueError:
         intent = heuristic_intent(question, dataset_context)
         intent["assumptions"].append("Intent model returned invalid JSON; used deterministic inference.")
@@ -429,6 +442,17 @@ def intent_to_analysis_plan(intent, dataset_context):
             reason = intent.get("clarifying_question") or "Clarification is needed before this analysis can run."
             return _empty_plan(reason)
 
+    deterministic_operation = intent.get("_deterministic_operation")
+    if isinstance(deterministic_operation, dict):
+        operation_type = deterministic_operation.get("type")
+        params = deterministic_operation.get("params")
+        if operation_type in DETERMINISTIC_FILTER_OPERATIONS and isinstance(params, dict):
+            return _plan(
+                [deterministic_operation],
+                (intent.get("desired_output") or {}).get("format", "table"),
+                intent.get("assumptions") or [],
+            )
+
     resolved = resolve_intent_semantic_columns(intent, dataset_context)
     assumptions = list(intent.get("assumptions") or [])
     assumptions.extend(_resolution_assumptions(resolved))
@@ -506,11 +530,33 @@ def heuristic_intent(question, dataset_context):
     if "gpa" in question_lower and not _resolve_semantic_column("gpa", SEMANTIC_COLUMN_SYNONYMS["gpa"], columns, column_names, []):
         return _clarification_intent("No GPA-like column is available in this dataset.")
 
+    deterministic_filter = _deterministic_filter_intent(question, dataset_context)
+    if deterministic_filter:
+        return deterministic_filter
+
     if any(term in question_lower for term in ["missing", "null", "blank", "empty"]):
         return _base_intent("inspect_missing", "columns", question, "metrics")
 
     if any(term in question_lower for term in ["summary", "summarize", "describe", "profile"]):
         return _base_intent("summarize_dataset", "dataset", question, "metrics")
+
+    people_spec = classify_people_question(question)
+    if (
+        people_spec
+        and people_spec.get("filter_type") == "occupation"
+        and not _contains_word_or_phrase(
+            question_lower,
+            [
+                "tech",
+                "technology",
+                "tech company",
+                "technology company",
+                "technical role",
+                "startup",
+            ],
+        )
+    ):
+        return people_filter_fallback_intent(question, people_spec)
 
     if _is_tech_related_question(question_lower):
         if _is_alumni_tech_fallback_question(question_lower):
@@ -583,7 +629,6 @@ def heuristic_intent(question, dataset_context):
         intent["aggregation"] = {"operation": "summary", "group_by_semantic_column": "", "value_semantic_column": value_semantic}
         return intent
 
-    people_spec = classify_people_question(question)
     if people_spec:
         return people_filter_fallback_intent(question, people_spec)
 
@@ -591,6 +636,208 @@ def heuristic_intent(question, dataset_context):
         return _base_intent("aggregate", "columns", question, "metrics", aggregation={"operation": "date_summary"})
 
     return _unknown_intent("I could not map that question to the approved analysis operations.")
+
+
+def _deterministic_filter_intent(question, dataset_context):
+    question_text = str(question or "").strip()
+    question_lower = question_text.lower()
+
+    missing_semantic = _missing_filter_semantic(question_lower)
+    if missing_semantic:
+        if not _context_has_semantics(dataset_context, [missing_semantic]):
+            return _clarification_intent(
+                f"No column matching '{missing_semantic.replace('_', ' ')}' is available in this dataset."
+            )
+        return_columns = _person_display_semantics()
+        if missing_semantic == "linkedin_url":
+            return_columns.remove("linkedin_url")
+        return _direct_filter_intent(
+            question_text,
+            {
+                "type": "filter_missing",
+                "params": {
+                    "column": missing_semantic,
+                    "return_columns": return_columns,
+                    "limit": _extract_requested_count(question_lower, 100),
+                },
+            },
+            f"I filtered rows where {missing_semantic.replace('_', ' ')} is missing.",
+        )
+
+    name_match = re.search(
+        r"\bnamed\s+([A-Za-z][A-Za-z'’-]*)\s+([A-Za-z][A-Za-z'’-]*)\b",
+        question_text,
+        flags=re.IGNORECASE,
+    )
+    if name_match and _context_has_semantics(dataset_context, ["first_name", "last_name"]):
+        first_name, last_name = name_match.groups()
+        return _direct_filter_intent(
+            question_text,
+            {
+                "type": "contains_all",
+                "params": {
+                    "columns": ["first_name", "last_name"],
+                    "terms": [first_name, last_name],
+                    "column_term_groups": [
+                        {"concept": "first_name", "columns": ["first_name"], "terms": [first_name]},
+                        {"concept": "last_name", "columns": ["last_name"], "terms": [last_name]},
+                    ],
+                    "display_columns": _person_display_semantics(),
+                    "include_match_reason": False,
+                    "question": question_text,
+                    "limit": _extract_requested_count(question_lower, 100),
+                },
+            },
+            f"I matched first name {first_name} and last name {last_name}.",
+        )
+
+    employer_contains = re.search(
+        r"\bemployer\s+contains\s+['\"]?([^'\"?.!,]+)",
+        question_text,
+        flags=re.IGNORECASE,
+    )
+    if employer_contains and _context_has_semantics(dataset_context, ["employer"]):
+        term = employer_contains.group(1).strip()
+        if term:
+            return _direct_filter_intent(
+                question_text,
+                {
+                    "type": "filter_contains",
+                    "params": {
+                        "column": "employer",
+                        "terms": [term],
+                        "display_columns": _person_display_semantics(),
+                        "include_match_reason": False,
+                        "question": question_text,
+                        "limit": _extract_requested_count(question_lower, 100),
+                    },
+                },
+                f"Rows where employer contains {term}.",
+            )
+
+    location = _requested_location(question_text)
+    if location and _context_has_semantics(dataset_context, ["city"]):
+        return _direct_filter_intent(
+            question_text,
+            {
+                "type": "filter_contains",
+                "params": {
+                    "column": "location",
+                    "terms": [location],
+                    "display_columns": _person_display_semantics(extra=["city"]),
+                    "include_match_reason": False,
+                    "question": question_text,
+                    "limit": _extract_requested_count(question_lower, 100),
+                },
+            },
+            f"I matched location text containing {location}.",
+        )
+
+    year_match = re.search(
+        r"\b(?:graduated(?:\s+in)?|graduation\s+year|class(?:\s+of)?|grad(?:uation)?\s+year)\s+(19\d{2}|20\d{2}|21\d{2})\b",
+        question_lower,
+    )
+    if year_match and _context_has_semantics(dataset_context, ["grad_year"]):
+        year = int(year_match.group(1))
+        return _direct_filter_intent(
+            question_text,
+            {
+                "type": "filter_equals",
+                "params": {
+                    "column": "grad_year",
+                    "value": year,
+                    "return_columns": _person_display_semantics(extra=["grad_year"]),
+                    "limit": _extract_requested_count(question_lower, 100),
+                },
+            },
+            f"I filtered for graduation year {year}.",
+        )
+
+    domain_term = next(
+        (
+            term
+            for term in GENERIC_DOMAIN_TEXT_SEARCH_TERMS
+            if _contains_word_or_phrase(question_lower, [term])
+        ),
+        None,
+    )
+    if domain_term:
+        return _direct_filter_intent(
+            question_text,
+            {
+                "type": "contains_any",
+                "params": {
+                    "columns": ["occupation", "employer", "major"],
+                    "terms": [domain_term],
+                    "display_columns": _person_display_semantics(),
+                    "include_match_reason": False,
+                    "question": question_text,
+                    "limit": _extract_requested_count(question_lower, 100),
+                },
+            },
+            f"Rows matching {domain_term} in alumni role, employer, or major fields.",
+        )
+
+    return None
+
+
+def _direct_filter_intent(question, operation, assumption):
+    intent = _base_intent("find_records", "rows", question, "table")
+    intent["_deterministic_operation"] = operation
+    intent["assumptions"] = [assumption]
+    return intent
+
+
+def _missing_filter_semantic(question_lower):
+    if not _contains_word_or_phrase(question_lower, ["missing", "null", "blank", "empty"]):
+        return None
+    if not _contains_word_or_phrase(question_lower, ROW_FILTER_QUERY_HINTS):
+        return None
+
+    targets = [
+        ("linkedin_url", ["linkedin", "linkedin url", "linkedin urls"]),
+        ("employer", ["employer", "employers", "company", "companies"]),
+        ("occupation", ["occupation", "occupations", "title", "titles", "job", "jobs", "role", "roles"]),
+        ("email", ["email", "emails", "email address"]),
+        ("phone", ["phone", "phones", "phone number"]),
+        ("city", ["city", "cities", "location", "locations"]),
+        ("grad_year", ["graduation year", "class year", "grad year"]),
+    ]
+    for semantic, terms in targets:
+        if _contains_word_or_phrase(question_lower, terms):
+            return semantic
+    return None
+
+
+def _requested_location(question):
+    match = re.search(
+        r"\b(?:in|near|from)\s+([A-Z][A-Za-z'’.-]*(?:\s+[A-Z][A-Za-z'’.-]*){0,3})(?=\s*[?.!,]|$)",
+        str(question or ""),
+    )
+    return match.group(1).strip().rstrip("?.!,") if match else None
+
+
+def _context_has_semantics(dataset_context, semantics):
+    columns = dataset_context.get("columns") or []
+    actual_names = [str(column.get("name")) for column in columns if column.get("name") is not None]
+    return all(
+        _resolve_semantic_column(
+            semantic,
+            SEMANTIC_COLUMN_SYNONYMS.get(semantic, [semantic]),
+            columns,
+            actual_names,
+            [],
+        )
+        for semantic in semantics
+    )
+
+
+def _person_display_semantics(extra=None):
+    return list(
+        dict.fromkeys(
+            ["first_name", "last_name", "occupation", "employer", *(extra or []), "linkedin_url"]
+        )
+    )
 
 
 def _plan_find_records(intent, resolved, assumptions):
@@ -1199,34 +1446,8 @@ def _clarification_intent(reason):
     return _unknown_intent(reason)
 
 
-def _parse_json(text):
-    text = str(text or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError as nested_exc:
-                raise ValueError("Intent model returned invalid JSON.") from nested_exc
-        raise ValueError("Intent model returned invalid JSON.") from exc
-
-
-def _extract_response_text(response):
-    output_text = getattr(response, "output_text", None)
-    if output_text:
-        return output_text.strip()
-    for item in getattr(response, "output", []) or []:
-        for content in getattr(item, "content", []) or []:
-            text = getattr(content, "text", None)
-            if text:
-                return text.strip()
-    return ""
+# _parse_json and _extract_response_text are now shared via
+# app.utils.ai_helpers (parse_json_response, extract_response_text).
 
 
 def _clean_choice(value, allowed, default):
@@ -1263,13 +1484,7 @@ def _as_list(value):
 
 
 def _limit(value, default):
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        parsed = default
-    if parsed < 1:
-        parsed = default
-    return min(parsed, 500)
+    return clamp_limit(value, default)
 
 
 def _extract_requested_count(question_lower, default):
@@ -1284,21 +1499,11 @@ def _extract_requested_count(question_lower, default):
 
 
 def _contains_word_or_phrase(text, terms):
-    normalized = _normalize(text)
-    for term in terms:
-        term_normalized = _normalize(term)
-        if not term_normalized:
-            continue
-        if " " in term_normalized:
-            if term_normalized in normalized:
-                return True
-        elif re.search(rf"\b{re.escape(term_normalized)}\b", normalized):
-            return True
-    return False
+    return contains_word_or_phrase(text, terms)
 
 
 def _is_mutation_request(question_lower):
-    return _contains_word_or_phrase(
+    return contains_word_or_phrase(
         question_lower,
         [
             "delete",
@@ -1318,5 +1523,4 @@ def _is_mutation_request(question_lower):
 
 
 def _normalize(value):
-    normalized = re.sub(r"[^a-z0-9]+", " ", str(value).lower())
-    return " ".join(normalized.split())
+    return normalize_text(value)
