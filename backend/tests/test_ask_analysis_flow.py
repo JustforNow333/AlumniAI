@@ -247,6 +247,90 @@ def test_tech_alumni_query_displays_major_when_requested(client):
 
 
 @pytest.mark.parametrize(
+    ("question", "expect_major"),
+    [
+        ("Show me alumni who work in tech.", False),
+        ("Show me alumni who work in tech and include their majors.", True),
+    ],
+)
+def test_ask_response_boundary_sanitizes_internal_columns(client, monkeypatch, question, expect_major):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada"],
+            "Last Name": ["Lovelace"],
+            "Employer": ["Google"],
+            "Title": ["Software Engineer"],
+            "Major": ["Mathematics"],
+            "LinkedIn URL": ["linkedin.com/in/ada"],
+            "MATCH REASON": ["source data should not leak"],
+            "expected_industry": ["Tech"],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "unsafe-display-columns.csv")
+
+    unsafe_result = {
+        "operation_type": "contains_any",
+        "status": "ok",
+        "is_filtered": True,
+        "summary": "One matching alumnus.",
+        "columns": [
+            "First Name",
+            "Last Name",
+            "Employer",
+            "Title",
+            "Major",
+            "LinkedIn URL",
+            "MATCH REASON",
+            "expected_industry",
+        ],
+        "rows": [
+            [
+                "Ada",
+                "Lovelace",
+                "Google",
+                "Software Engineer",
+                "Mathematics",
+                "linkedin.com/in/ada",
+                "matched title",
+                "Tech",
+            ]
+        ],
+        "metrics": {"matched_row_count": 1, "returned_row_count": 1, "total_rows": 1},
+        "debug": {
+            "rows": [
+                {
+                    "classification": "direct_match",
+                    "confidence": 0.99,
+                    "internal_reason": "matched title",
+                }
+            ]
+        },
+    }
+    monkeypatch.setattr(
+        "app.routes.chat_routes.execute_analysis_plan",
+        lambda _df, _plan: [unsafe_result],
+    )
+
+    data = ask(client, dataset_id, question)
+
+    result = data["operation_results"][0]
+    table = table_blocks(data["answer"])[0]
+    all_column_sets = [
+        result["columns"],
+        data["result"]["columns"],
+        table["columns"],
+    ]
+    for columns in all_column_sets:
+        normalized = {str(column).lower().replace("_", " ") for column in columns}
+        assert "match reason" not in normalized
+        assert "expected industry" not in normalized
+        assert ("major" in normalized) is expect_major
+    assert len(result["rows"]) == 1
+    assert "debug" not in result
+    assert "classification" not in str(data["operation_results"]).lower()
+
+
+@pytest.mark.parametrize(
     "question",
     [
         "How many alumni are working in tech either as software engineers or as other roles in a tech company",

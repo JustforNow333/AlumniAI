@@ -134,6 +134,50 @@ def test_create_insight_persists_full_response_payload(client):
     assert listed["response_payload"] == created["response_payload"]
 
 
+def test_saved_insight_sanitizes_internal_response_payload_columns(client):
+    dataset_id = upload_dataframe(client, sample_df(1), "alumni.csv")
+    response_payload = {
+        "question": "Show me alumni in tech",
+        "answer": {
+            "summary": "One match.",
+            "blocks": [
+                {
+                    "type": "table",
+                    "columns": ["First Name", "Major", "MATCH REASON", "expected_industry"],
+                    "rows": [["Person0", "Math", "matched title", "Tech"]],
+                }
+            ],
+            "followups": [],
+        },
+        "result": {
+            "columns": ["First Name", "Major", "MATCH REASON", "expected_industry"],
+            "rows": [["Person0", "Math", "matched title", "Tech"]],
+            "debug": {"classification": "direct_match"},
+        },
+        "operation_results": [
+            {
+                "columns": ["First Name", "MATCH REASON"],
+                "rows": [["Person0", "matched title"]],
+            }
+        ],
+    }
+
+    created = save_insight(
+        client,
+        dataset_id,
+        question="Show me alumni in tech",
+        response_payload=response_payload,
+    ).get_json()
+    fetched = client.get(f"/api/insights/{created['insight_id']}").get_json()
+
+    for item in (created, fetched):
+        payload = item["response_payload"]
+        assert payload["answer"]["blocks"][0]["columns"] == ["First Name"]
+        assert payload["result"]["columns"] == ["First Name"]
+        assert payload["operation_results"][0]["columns"] == ["First Name"]
+        assert "debug" not in payload["result"]
+
+
 def test_create_insight_generates_title_from_question_when_missing(client):
     dataset_id = upload_dataframe(client, sample_df(), "alumni.csv")
 
