@@ -231,11 +231,88 @@ def test_software_engineers_query_infers_role_terms():
     intent = heuristic_intent("Which alumni are software engineers?", context)
     plan = intent_to_analysis_plan(intent, context)
 
-    concept_names = {concept["name"] for concept in intent["concepts"]}
-    assert "software_engineer_role" in concept_names
-    group = next(group for group in plan["operations"][0]["params"]["column_term_groups"] if group["concept"] == "software_engineer_role")
+    assert intent["people_filter_spec"]["filter_type"] == "occupation"
+    group = next(group for group in plan["operations"][0]["params"]["column_term_groups"] if group["concept"] == "target_occupation")
     assert group["columns"] == ["OCCUPATION"]
     assert "software engineer" in group["terms"]
+
+
+def test_deterministic_location_and_year_filters_plan_without_model():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace"],
+            "Last Name": ["Lovelace", "Hopper"],
+            "Title": ["Engineer", "Admiral"],
+            "Employer": ["Analytical Engines", "Navy"],
+            "LinkedIn URL": ["", ""],
+            "Location": ["New York, NY", "San Francisco, CA"],
+            "Graduation Year": [2023, 2024],
+        }
+    )
+    context = build_dataset_context(df)
+
+    location_plan = intent_to_analysis_plan(heuristic_intent("Show me alumni in New York.", context), context)
+    year_plan = intent_to_analysis_plan(heuristic_intent("Show alumni who graduated in 2023.", context), context)
+
+    assert location_plan["operations"][0]["type"] == "filter_contains"
+    assert location_plan["operations"][0]["params"]["column"] == "location"
+    assert location_plan["operations"][0]["params"]["terms"] == ["New York"]
+    assert year_plan["operations"][0]["type"] == "filter_equals"
+    assert year_plan["operations"][0]["params"]["column"] == "grad_year"
+    assert year_plan["operations"][0]["params"]["value"] == 2023
+
+
+def test_deterministic_missing_and_name_filters_plan_without_model():
+    df = pd.DataFrame(
+        {
+            "first_name": ["Isabella", "Isabella"],
+            "last_name": ["Khan", "Perez"],
+            "title": ["Analyst", "Engineer"],
+            "employer": ["AQR", "Launch Potato"],
+            "linkedin_url": ["", "https://linkedin.com/in/example"],
+        }
+    )
+    context = build_dataset_context(df)
+
+    missing_plan = intent_to_analysis_plan(heuristic_intent("Show alumni with missing LinkedIn URLs.", context), context)
+    name_plan = intent_to_analysis_plan(heuristic_intent("Show alumni named Isabella Khan.", context), context)
+
+    assert missing_plan["operations"][0]["type"] == "filter_missing"
+    assert missing_plan["operations"][0]["params"]["column"] == "linkedin_url"
+    assert name_plan["operations"][0]["type"] == "contains_all"
+    assert name_plan["operations"][0]["params"]["column_term_groups"][0]["terms"] == ["Isabella"]
+    assert name_plan["operations"][0]["params"]["column_term_groups"][1]["terms"] == ["Khan"]
+
+
+def test_deterministic_employer_contains_and_zero_result_domain_plans_without_model():
+    df = pd.DataFrame(
+        {
+            "first_name": ["Ada"],
+            "last_name": ["Lovelace"],
+            "title": ["Engineer"],
+            "employer": ["Capital Labs"],
+            "major": ["Mathematics"],
+            "linkedin_url": [""],
+        }
+    )
+    context = build_dataset_context(df)
+
+    employer_plan = intent_to_analysis_plan(
+        heuristic_intent("Show alumni whose employer contains Capital.", context),
+        context,
+    )
+    aerospace_plan = intent_to_analysis_plan(
+        heuristic_intent("Show alumni in aerospace.", context),
+        context,
+    )
+
+    assert employer_plan["operations"][0]["type"] == "filter_contains"
+    assert employer_plan["operations"][0]["params"]["column"] == "employer"
+    assert employer_plan["operations"][0]["params"]["terms"] == ["Capital"]
+    assert employer_plan["operations"][0]["params"]["include_match_reason"] is False
+    assert aerospace_plan["operations"][0]["type"] == "contains_any"
+    assert aerospace_plan["operations"][0]["params"]["terms"] == ["aerospace"]
+    assert aerospace_plan["operations"][0]["params"]["include_match_reason"] is False
 
 
 def test_known_concept_with_no_terms_expands_from_library():

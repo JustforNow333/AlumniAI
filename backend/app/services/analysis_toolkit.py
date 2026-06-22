@@ -1,3 +1,4 @@
+import logging
 import re
 import warnings
 
@@ -17,6 +18,12 @@ from app.services.industry_matching import (
 from app.services.industry_taxonomies import get_taxonomy
 from app.services import people_classifier
 from app.services.spreadsheet_service import to_json_safe
+from app.utils.text_utils import (
+    clamp_limit as _clamp_limit,
+    contains_word_or_phrase as _shared_contains_word_or_phrase,
+    dedupe_warnings as _shared_dedupe_warnings,
+    normalize_text as _shared_normalize_text,
+)
 
 
 MAX_LIMIT = 500
@@ -26,6 +33,7 @@ ALLOWED_OPERATION_TYPES = {
     "preview",
     "select_columns",
     "filter_equals",
+    "filter_missing",
     "filter_contains",
     "search_text",
     "contains_any",
@@ -78,7 +86,7 @@ COLUMN_SYNONYM_GROUPS = [
     ["email", "email address", "e-mail"],
     ["linkedin url", "linkedinurl", "linkedin_url", "linkedin", "linked in", "linked in url"],
     ["phone", "phone number", "mobile"],
-    ["city", "town"],
+    ["city", "town", "location"],
     ["state", "province", "region"],
 ]
 
@@ -164,6 +172,8 @@ def execute_operation(df, operation, assumptions=None):
             return _op_select_columns(df, params, assumptions)
         if operation_type == "filter_equals":
             return _op_filter_equals(df, params, assumptions)
+        if operation_type == "filter_missing":
+            return _op_filter_missing(df, params, assumptions)
         if operation_type == "filter_contains":
             return _op_filter_contains(df, params, assumptions)
         if operation_type == "search_text":
@@ -205,6 +215,7 @@ def execute_operation(df, operation, assumptions=None):
         if operation_type == "group_by_month":
             return _op_group_by_month(df, params, assumptions)
     except Exception as exc:
+        logging.getLogger(__name__).warning("Operation '%s' raised an unexpected error: %s", operation_type, exc, exc_info=True)
         return _error_result(operation_type, f"Operation failed: {exc}")
 
     return _error_result(operation_type, f"Operation '{operation_type}' is not implemented.")
@@ -268,6 +279,23 @@ def _op_filter_equals(df, params, assumptions):
     else:
         mask = series.eq(value)
     return _filter_result(df, mask, params, "filter_equals", f"Rows where {column} equals {value}.", assumptions, warning)
+
+
+def _op_filter_missing(df, params, assumptions):
+    column, warning = _resolve_column(df, params.get("column"))
+    if not column:
+        return _error_result("filter_missing", f"Column '{params.get('column')}' was not found.", warning)
+
+    mask = _missing_mask(df[column])
+    return _filter_result(
+        df,
+        mask,
+        params,
+        "filter_missing",
+        f"Rows where {column} is missing.",
+        assumptions,
+        warning,
+    )
 
 
 def _op_filter_contains(df, params, assumptions):
@@ -1431,13 +1459,7 @@ def _rows(frame, columns):
 
 
 def _limit(value, default=DEFAULT_LIMIT):
-    try:
-        value = int(value)
-    except (TypeError, ValueError):
-        value = default
-    if value < 1:
-        value = default
-    return min(value, MAX_LIMIT)
+    return _clamp_limit(value, default, max_value=MAX_LIMIT)
 
 
 def _resolve_column(df, requested):
@@ -1605,9 +1627,10 @@ def _display_columns_for_text_search(df, search_columns, params):
     if not columns:
         columns = _default_text_search_display_columns(df, params, search_columns)
 
-    for required in [MATCH_REASON_COLUMN]:
-        if required in df.columns and required not in columns:
-            columns.append(required)
+    if params.get("include_match_reason", True):
+        for required in [MATCH_REASON_COLUMN]:
+            if required in df.columns and required not in columns:
+                columns.append(required)
 
     return columns, warnings
 
@@ -1759,17 +1782,7 @@ def _dedupe_match_reasons(matches):
 
 
 def _contains_word_or_phrase(text, terms):
-    normalized = _normalize_name(text)
-    for term in terms:
-        term_normalized = _normalize_name(term)
-        if not term_normalized:
-            continue
-        if " " in term_normalized:
-            if term_normalized in normalized:
-                return True
-        elif re.search(rf"\b{re.escape(term_normalized)}\b", normalized):
-            return True
-    return False
+    return _shared_contains_word_or_phrase(text, terms)
 
 
 def _infer_type(series):
@@ -1804,30 +1817,11 @@ def _warning(kind, message, requested=None, resolved_to=None, suggestions=None):
 
 
 def _dedupe_warnings(warnings):
-    deduped = []
-    seen = set()
-    for warning in warnings or []:
-        key = _warning_key(warning)
-        if key not in seen:
-            seen.add(key)
-            deduped.append(warning)
-    return deduped
-
-
-def _warning_key(warning):
-    if isinstance(warning, dict):
-        return (
-            warning.get("type"),
-            warning.get("message"),
-            str(warning.get("requested")),
-            str(warning.get("resolved_to")),
-        )
-    return ("text", str(warning))
+    return _shared_dedupe_warnings(warnings)
 
 
 def _normalize_name(value):
-    normalized = re.sub(r"[^a-z0-9]+", " ", str(value).lower())
-    return " ".join(normalized.split())
+    return _shared_normalize_text(value)
 
 
 def _normalize_compact(value):
