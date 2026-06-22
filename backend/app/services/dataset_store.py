@@ -1,13 +1,16 @@
 import json
-import os
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 import pandas as pd
 from flask import current_app, has_app_context
 from werkzeug.utils import secure_filename
 
+from app.services.registry_store import (
+    generate_unique_id,
+    load_registry,
+    save_registry,
+)
 from app.services.spreadsheet_service import clean_dataframe
 
 
@@ -69,41 +72,20 @@ def ensure_storage_dirs():
 
 def load_dataset_registry():
     ensure_storage_dirs()
-    registry_path = get_storage_paths()["registry_path"]
-
-    try:
-        with registry_path.open("r", encoding="utf-8") as registry_file:
-            registry = json.load(registry_file)
-    except json.JSONDecodeError as exc:
-        raise DatasetRegistryError("Dataset registry is invalid JSON.") from exc
-    except OSError as exc:
-        raise DatasetRegistryError(f"Could not read dataset registry: {exc}") from exc
-
-    if not isinstance(registry, dict):
-        raise DatasetRegistryError("Dataset registry must contain a JSON object.")
-
-    return registry
+    return load_registry(
+        get_storage_paths()["registry_path"], error_cls=DatasetRegistryError, label="Dataset"
+    )
 
 
 def save_dataset_registry(registry):
-    if not isinstance(registry, dict):
-        raise DatasetRegistryError("Dataset registry must be a dictionary.")
-
     ensure_storage_dirs()
-    registry_path = get_storage_paths()["registry_path"]
-    temporary_path = registry_path.with_name(f"{registry_path.name}.tmp")
-
-    try:
-        with temporary_path.open("w", encoding="utf-8") as registry_file:
-            json.dump(registry, registry_file, indent=2)
-            registry_file.write("\n")
-        os.replace(temporary_path, registry_path)
-    except OSError as exc:
-        raise DatasetRegistryError(f"Could not save dataset registry: {exc}") from exc
+    save_registry(
+        registry, get_storage_paths()["registry_path"], error_cls=DatasetRegistryError, label="Dataset"
+    )
 
 
 def generate_dataset_id():
-    return str(uuid4())
+    return generate_unique_id({})
 
 
 def get_file_type(filename):

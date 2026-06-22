@@ -1,6 +1,5 @@
 import json
 import os
-import re
 
 from app.services import ai_service
 from app.services.answer_schema import (
@@ -9,6 +8,8 @@ from app.services.answer_schema import (
     plain_markdown_answer,
 )
 from app.services.spreadsheet_service import to_json_safe
+from app.utils.ai_helpers import extract_response_text, parse_json_response
+from app.utils.text_utils import format_warning
 
 
 PRESENTER_INSTRUCTIONS = """
@@ -78,7 +79,7 @@ def present_answer(question, plan, operation_results, dataset_context):
         return fallback
 
     try:
-        parsed = _parse_json(_extract_response_text(response))
+        parsed = parse_json_response(extract_response_text(response))
     except ValueError:
         return fallback
 
@@ -117,7 +118,7 @@ def _ensure_notes(answer, plan, operation_results):
     if assumptions:
         notes.append("Assumptions: " + "; ".join(dict.fromkeys(str(item) for item in assumptions if str(item).strip())))
     if warnings:
-        notes.append("Warnings: " + "; ".join(_format_warning(warning) for warning in warnings))
+        notes.append("Warnings: " + "; ".join(format_warning(warning) for warning in warnings))
     if not notes:
         return answer
 
@@ -160,48 +161,16 @@ def _ensure_people_filter_blocks(answer, operation_results, fallback):
     return normalized if valid else answer
 
 
-def _format_warning(warning):
-    if isinstance(warning, dict):
-        return str(warning.get("message") or warning)
-    return str(warning)
-
-
 def _dedupe_warnings(warnings):
     deduped = []
     seen = set()
     for warning in warnings or []:
-        text = _format_warning(warning).strip()
+        text = format_warning(warning).strip()
         if text and text not in seen:
             seen.add(text)
             deduped.append(warning)
     return deduped
 
 
-def _parse_json(text):
-    text = str(text or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError as nested_exc:
-                raise ValueError("Presenter returned invalid JSON.") from nested_exc
-        raise ValueError("Presenter returned invalid JSON.") from exc
-
-
-def _extract_response_text(response):
-    output_text = getattr(response, "output_text", None)
-    if output_text:
-        return output_text.strip()
-    for item in getattr(response, "output", []) or []:
-        for content in getattr(item, "content", []) or []:
-            text = getattr(content, "text", None)
-            if text:
-                return text.strip()
-    return ""
+# _parse_json, _extract_response_text, and _format_warning are now shared via
+# app.utils.ai_helpers and app.utils.text_utils.

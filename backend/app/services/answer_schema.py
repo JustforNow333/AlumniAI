@@ -1,6 +1,7 @@
 import re
 
 from app.services.spreadsheet_service import to_json_safe
+from app.utils.text_utils import format_warning as _shared_format_warning
 
 
 HTML_TAG_RE = re.compile(r"<[^>\n]*>")
@@ -360,9 +361,7 @@ def _table_caption(result):
 
 
 def _format_warning(warning):
-    if isinstance(warning, dict):
-        return clean_text(warning.get("message") or warning)
-    return clean_text(warning)
+    return clean_text(_shared_format_warning(warning))
 
 
 def _dedupe_text(values):

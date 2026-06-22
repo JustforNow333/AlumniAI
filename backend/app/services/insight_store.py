@@ -10,14 +10,18 @@ user; nothing in this module logs questions or answers automatically.
 """
 
 import json
-import os
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from flask import current_app, has_app_context
 
 from app.services.dataset_store import get_dataset_metadata, get_storage_paths
+from app.services.registry_store import (
+    generate_unique_id,
+    list_registry_newest_first,
+    load_registry,
+    save_registry,
+)
 from app.services.spreadsheet_service import to_json_safe
 
 
@@ -55,39 +59,15 @@ def get_insights_registry_path():
 
 
 def load_insight_registry():
-    registry_path = get_insights_registry_path()
-    if not registry_path.exists():
-        return {}
-
-    try:
-        with registry_path.open("r", encoding="utf-8") as registry_file:
-            registry = json.load(registry_file)
-    except json.JSONDecodeError as exc:
-        raise InsightRegistryError("Saved insights registry is invalid JSON.") from exc
-    except OSError as exc:
-        raise InsightRegistryError(f"Could not read saved insights registry: {exc}") from exc
-
-    if not isinstance(registry, dict):
-        raise InsightRegistryError("Saved insights registry must contain a JSON object.")
-
-    return registry
+    return load_registry(
+        get_insights_registry_path(), error_cls=InsightRegistryError, label="Saved insights"
+    )
 
 
 def save_insight_registry(registry):
-    if not isinstance(registry, dict):
-        raise InsightRegistryError("Saved insights registry must be a dictionary.")
-
-    registry_path = get_insights_registry_path()
-    registry_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = registry_path.with_name(f"{registry_path.name}.tmp")
-
-    try:
-        with temporary_path.open("w", encoding="utf-8") as registry_file:
-            json.dump(registry, registry_file, indent=2)
-            registry_file.write("\n")
-        os.replace(temporary_path, registry_path)
-    except OSError as exc:
-        raise InsightRegistryError(f"Could not save saved insights registry: {exc}") from exc
+    save_registry(
+        registry, get_insights_registry_path(), error_cls=InsightRegistryError, label="Saved insights"
+    )
 
 
 def generate_title_from_question(question):
@@ -172,9 +152,7 @@ def create_insight(dataset_id, question, answer, title=None, tags=None, extra_me
         metadata["column_count"] = dataset_metadata.get("column_count")
 
     registry = load_insight_registry()
-    insight_id = str(uuid4())
-    while insight_id in registry:
-        insight_id = str(uuid4())
+    insight_id = generate_unique_id(registry)
 
     now = datetime.now().isoformat(timespec="seconds")
     entry = {
@@ -205,15 +183,14 @@ def list_insights(dataset_id=None):
     """All saved insights, newest first. created_at has second resolution, so
     ties break by registry insertion order (later insertion = newer)."""
     registry = load_insight_registry()
-    entries = [entry for entry in registry.values() if isinstance(entry, dict)]
     if dataset_id:
-        entries = [entry for entry in entries if entry.get("dataset_id") == str(dataset_id)]
-    indexed = [
-        (str(entry.get("created_at") or ""), position, entry)
-        for position, entry in enumerate(entries)
-    ]
-    indexed.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [insight_public_metadata(entry) for _created_at, _position, entry in indexed]
+        registry = {
+            k: v for k, v in registry.items()
+            if isinstance(v, dict) and v.get("dataset_id") == str(dataset_id)
+        }
+    return list_registry_newest_first(
+        registry, "created_at", lambda entry, entry_id: insight_public_metadata(entry)
+    )
 
 
 def get_insight(insight_id):
