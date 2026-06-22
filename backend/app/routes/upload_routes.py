@@ -7,6 +7,7 @@ from app.services.spreadsheet_service import (
 from app.utils.file_utils import (
     allowed_file,
     is_empty_upload,
+    validate_file_content,
 )
 
 
@@ -28,6 +29,9 @@ def upload_file():
 
     if is_empty_upload(uploaded_file):
         return jsonify({"error": "Uploaded file is empty."}), 400
+
+    if not validate_file_content(uploaded_file, uploaded_file.filename):
+        return jsonify({"error": "File content does not match expected format."}), 400
 
     try:
         metadata = register_uploaded_dataset(uploaded_file)

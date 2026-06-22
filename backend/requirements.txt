@@ -1,10 +1,10 @@
-flask
-flask-cors
-pandas
-openpyxl
-python-dotenv
-openai
+flask>=3.1,<4
+flask-cors>=6.0,<7
+pandas>=3.0,<4
+openpyxl>=3.1,<4
+python-dotenv>=1.0,<2
+openai>=2.0,<3
 
-pytest
-pytest-mock
-coverage
+pytest>=9.0,<10
+pytest-mock>=3.14,<4
+coverage>=7.0,<8

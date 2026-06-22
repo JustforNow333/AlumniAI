@@ -312,18 +312,29 @@ def load_dataset_dataframe(dataset_id):
 
 def _resolve_dataset_file_path(file_path):
     path = Path(str(file_path or ""))
-    if path.is_absolute():
-        return path
-
     paths = get_storage_paths()
     stored_filename = path.name
 
+    if path.is_absolute():
+        resolved = path.resolve()
+        allowed_roots = (paths["upload_folder"].resolve(), paths["data_folder"].resolve())
+        if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+            raise DatasetFileMissingError("Dataset file path is outside allowed storage.")
+        return resolved
+
     if path.parts and path.parts[0] == "uploads":
-        return paths["upload_folder"] / stored_filename
+        resolved = (paths["upload_folder"] / stored_filename).resolve()
+        if not str(resolved).startswith(str(paths["upload_folder"].resolve())):
+            raise DatasetFileMissingError("Dataset file path is outside allowed storage.")
+        return resolved
 
     if path.parts:
-        candidate = paths["data_folder"].parent / path
-        if candidate.exists():
+        candidate = (paths["data_folder"].parent / path).resolve()
+        allowed_roots = (paths["upload_folder"].resolve(), paths["data_folder"].resolve())
+        if any(str(candidate).startswith(str(root)) for root in allowed_roots) and candidate.exists():
             return candidate
 
-    return paths["upload_folder"] / stored_filename
+    resolved = (paths["upload_folder"] / stored_filename).resolve()
+    if not str(resolved).startswith(str(paths["upload_folder"].resolve())):
+        raise DatasetFileMissingError("Dataset file path is outside allowed storage.")
+    return resolved

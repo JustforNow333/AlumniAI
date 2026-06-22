@@ -1,4 +1,6 @@
-from flask import Blueprint, jsonify, request
+import os
+
+from flask import Blueprint, abort, jsonify, request
 
 from app.services.analysis_executor import execute_analysis_plan
 from app.services.analysis_intent import infer_analysis_intent, intent_to_analysis_plan
@@ -101,6 +103,8 @@ def debug_classify_row():
     GET /api/debug/classify-row?dataset_id=...&name=Neil%20Wusu&industry=tech
     This debug info never appears in the normal user-facing table.
     """
+    if not os.getenv("FLASK_DEBUG", "0").lower() in {"1", "true", "yes", "on"}:
+        abort(404)
     dataset_id = request.args.get("dataset_id")
     name_query = (request.args.get("name") or "").strip()
     industry = (request.args.get("industry") or "tech").strip()
