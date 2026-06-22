@@ -14,6 +14,7 @@ from uuid import uuid4
 from flask import current_app, has_app_context
 
 from app.services.dataset_store import get_dataset_metadata, get_storage_paths
+from app.services.display_sanitizer import sanitize_response_payload
 from app.services.insight_store import create_insight
 from app.services.spreadsheet_service import to_json_safe
 
@@ -108,6 +109,11 @@ def history_public_metadata(entry, entry_id=None):
     response_payload = entry.get("response_payload")
     if not isinstance(response_payload, dict):
         response_payload = None
+    else:
+        response_payload = sanitize_response_payload(
+            response_payload,
+            entry.get("question"),
+        )
 
     metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
     answer_text = str(entry.get("answer_text") or entry.get("answer") or "")
@@ -157,7 +163,7 @@ def create_history_item(
         raise HistoryValidationError("answer_text must not be empty.")
     answer_snapshot = answer_snapshot[:MAX_ANSWER_TEXT_LENGTH]
 
-    cleaned_response_payload = _clean_response_payload(response_payload)
+    cleaned_response_payload = _clean_response_payload(response_payload, question_text)
 
     if not isinstance(dataset_metadata, dict):
         try:
@@ -262,13 +268,13 @@ def save_history_item_as_insight(history_id):
     )
 
 
-def _clean_response_payload(response_payload):
+def _clean_response_payload(response_payload, question=""):
     if response_payload is None:
         return None
     if not isinstance(response_payload, dict) or isinstance(response_payload, list):
         raise HistoryValidationError("response_payload must be a JSON object.")
 
-    safe_payload = to_json_safe(response_payload)
+    safe_payload = to_json_safe(sanitize_response_payload(response_payload, question))
     try:
         encoded = json.dumps(safe_payload, ensure_ascii=False)
     except TypeError as exc:

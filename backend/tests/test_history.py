@@ -257,6 +257,44 @@ def test_history_preserves_response_payload_exactly(client):
     assert listed["response_payload"] == payload
 
 
+def test_history_sanitizes_internal_response_payload_columns(client):
+    dataset_id = upload_dataframe(client, sample_df(), "alumni.csv")
+    payload = {
+        "question": "Show me alumni in tech",
+        "answer": {
+            "summary": "One match.",
+            "blocks": [
+                {
+                    "type": "table",
+                    "columns": ["First Name", "Major", "MATCH REASON", "eval_case_id"],
+                    "rows": [["Ada", "Math", "matched title", "case-1"]],
+                }
+            ],
+            "followups": [],
+        },
+        "result": {
+            "columns": ["First Name", "Major", "MATCH REASON", "eval_case_id"],
+            "rows": [["Ada", "Math", "matched title", "case-1"]],
+            "debug": {"confidence": 0.99},
+        },
+    }
+
+    created = create_history(
+        client,
+        dataset_id,
+        question="Show me alumni in tech",
+        answer_text="One match.",
+        response_payload=payload,
+    ).get_json()
+    fetched = client.get(f"/api/history/{created['history_id']}").get_json()
+
+    for item in (created, fetched):
+        response_payload = item["response_payload"]
+        assert response_payload["answer"]["blocks"][0]["columns"] == ["First Name"]
+        assert response_payload["result"]["columns"] == ["First Name"]
+        assert "debug" not in response_payload["result"]
+
+
 def test_history_survives_restart_and_deleted_dataset_is_marked(client, tmp_path, monkeypatch):
     monkeypatch.setattr(ai_service, "client", None)
     dataset_id = upload_dataframe(client, sample_df(), "alumni.csv")

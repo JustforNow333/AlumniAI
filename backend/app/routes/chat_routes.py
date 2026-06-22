@@ -6,6 +6,10 @@ from app.services.analysis_toolkit import build_dataset_context
 from app.services.answer_presenter import planner_failure_answer, present_answer
 from app.services.column_resolver import resolve_person_columns
 from app.services.dataset_store import DatasetStoreError, load_dataset_dataframe
+from app.services.display_sanitizer import (
+    sanitize_operation_results,
+    sanitize_response_payload,
+)
 from app.services.history_store import HistoryStoreError, create_history_item
 from app.services.industry_matching import debug_classify_person
 from app.services.spreadsheet_service import to_json_safe
@@ -47,7 +51,8 @@ def ask_dataset():
         plan_error = intent_error
 
     if plan_valid and plan.get("operations"):
-        operation_results = execute_analysis_plan(df, plan)
+        raw_operation_results = execute_analysis_plan(df, plan)
+        operation_results = sanitize_operation_results(raw_operation_results, question_text)
         answer = present_answer(question_text, plan, operation_results, context)
     elif plan_valid:
         operation_results = []
@@ -60,7 +65,7 @@ def ask_dataset():
     result = operation_results[0] if operation_results else None
 
     answer_text = answer.get("summary", "") if isinstance(answer, dict) else str(answer)
-    response_payload = {
+    response_payload = sanitize_response_payload({
         "dataset_id": dataset_id,
         "question": question_text,
         "answer": answer,
@@ -70,7 +75,12 @@ def ask_dataset():
         "analysis_intent": analysis_intent,
         "analysis_plan": plan,
         "operation_results": operation_results,
-    }
+    }, question_text)
+    answer = response_payload["answer"]
+    answer_text = answer.get("summary", "") if isinstance(answer, dict) else str(answer)
+    response_payload["answer_text"] = answer_text
+    result = response_payload.get("result")
+    operation_results = response_payload.get("operation_results") or []
     response_body = dict(response_payload)
 
     if _should_record_history(answer, answer_text, plan, operation_results):

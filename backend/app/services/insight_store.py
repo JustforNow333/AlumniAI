@@ -18,6 +18,7 @@ from uuid import uuid4
 from flask import current_app, has_app_context
 
 from app.services.dataset_store import get_dataset_metadata, get_storage_paths
+from app.services.display_sanitizer import sanitize_response_payload
 from app.services.spreadsheet_service import to_json_safe
 
 
@@ -117,6 +118,11 @@ def insight_public_metadata(entry):
     response_payload = entry.get("response_payload")
     if not isinstance(response_payload, dict):
         response_payload = None
+    else:
+        response_payload = sanitize_response_payload(
+            response_payload,
+            entry.get("question"),
+        )
     return {
         "id": entry.get("insight_id"),
         "insight_id": entry.get("insight_id"),
@@ -155,7 +161,7 @@ def create_insight(dataset_id, question, answer, title=None, tags=None, extra_me
     answer_text = str(answer or "").strip()
     if not answer_text:
         raise InsightValidationError("answer must not be empty.")
-    cleaned_response_payload = _clean_response_payload(response_payload)
+    cleaned_response_payload = _clean_response_payload(response_payload, question_text)
 
     title_text = str(title or "").strip()[:MAX_TITLE_LENGTH].strip()
     if not title_text:
@@ -273,13 +279,13 @@ def _clean_tags(tags):
     return cleaned
 
 
-def _clean_response_payload(response_payload):
+def _clean_response_payload(response_payload, question=""):
     if response_payload is None:
         return None
     if not isinstance(response_payload, dict):
         raise InsightValidationError("response_payload must be a JSON object.")
 
-    safe_payload = to_json_safe(response_payload)
+    safe_payload = to_json_safe(sanitize_response_payload(response_payload, question))
     try:
         encoded = json.dumps(safe_payload, ensure_ascii=False)
     except TypeError as exc:
