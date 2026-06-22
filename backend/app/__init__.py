@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -72,5 +73,10 @@ def create_app():
     @app.errorhandler(404)
     def not_found(_error):
         return jsonify({"error": "Route not found."}), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        logging.getLogger(__name__).exception("Unhandled server error: %s", error)
+        return jsonify({"error": "An internal server error occurred."}), 500
 
     return app

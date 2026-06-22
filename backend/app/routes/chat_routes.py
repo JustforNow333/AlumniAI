@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, jsonify, request
 
 from app.services.analysis_executor import execute_analysis_plan
@@ -88,8 +90,8 @@ def ask_dataset():
                 "history_id": history_item.get("history_id"),
                 "created_at": history_item.get("created_at"),
             }
-        except HistoryStoreError:
-            pass
+        except HistoryStoreError as exc:
+            logging.getLogger(__name__).warning("Failed to record history for dataset %s: %s", dataset_id, exc)
 
     return jsonify(to_json_safe(response_body))
 

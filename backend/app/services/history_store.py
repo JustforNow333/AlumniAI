@@ -6,6 +6,7 @@ source dataset because each item stores the full response payload snapshot.
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -102,7 +103,8 @@ def history_public_metadata(entry, entry_id=None):
     try:
         if dataset_id and get_dataset_metadata(dataset_id) is not None:
             dataset_status = "ready"
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Could not check dataset %s status for history entry: %s", dataset_id, exc)
         dataset_status = "deleted"
 
     response_payload = entry.get("response_payload")
@@ -162,7 +164,8 @@ def create_history_item(
     if not isinstance(dataset_metadata, dict):
         try:
             dataset_metadata = get_dataset_metadata(dataset_id) or {}
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Could not fetch dataset metadata for %s during history creation: %s", dataset_id, exc)
             dataset_metadata = {}
 
     filename = str(

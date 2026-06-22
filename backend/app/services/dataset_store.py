@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -295,8 +296,8 @@ def delete_dataset(dataset_id):
     if file_path:
         try:
             _resolve_dataset_file_path(file_path).unlink(missing_ok=True)
-        except OSError:
-            pass  # metadata removal still proceeds; the orphan file is harmless
+        except OSError as exc:
+            logging.getLogger(__name__).warning("Could not remove dataset file %s during deletion: %s", file_path, exc)
     save_dataset_registry(registry)
     return dataset_public_metadata(metadata)
 

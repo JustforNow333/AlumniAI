@@ -15,6 +15,7 @@ reported separately and never counted in total_matches.
 """
 
 import json
+import logging
 import os
 import re
 
@@ -216,7 +217,8 @@ def default_model_classifier(employer, occupation, taxonomy):
         )
         text = getattr(response, "output_text", "") or ""
         parsed = json.loads(text.strip())
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Model classifier call failed for employer '%s' (industry=%s): %s", employer, industry, exc)
         parsed = None
     if not isinstance(parsed, dict):
         parsed = None
@@ -244,7 +246,8 @@ def budgeted_model_classifier(budget=20):
 def _apply_model_classifier(model_classifier, employer, occupation, taxonomy):
     try:
         outcome = model_classifier(employer, occupation, taxonomy)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Model classifier raised for employer '%s': %s", employer, exc)
         return None
     if not isinstance(outcome, dict):
         return None

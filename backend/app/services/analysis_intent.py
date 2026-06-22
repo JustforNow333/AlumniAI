@@ -1,5 +1,6 @@
 import difflib
 import json
+import logging
 import os
 import re
 
@@ -273,6 +274,7 @@ def infer_analysis_intent(question, dataset_context):
             tools=[],
         )
     except Exception as exc:
+        logging.getLogger(__name__).warning("Intent model call failed, using heuristic fallback: %s", exc)
         intent = heuristic_intent(question, dataset_context)
         intent["assumptions"].append(f"Intent model unavailable; used deterministic inference. {exc}")
         return intent, True, ""

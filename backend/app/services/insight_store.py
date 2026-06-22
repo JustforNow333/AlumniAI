@@ -10,6 +10,7 @@ user; nothing in this module logs questions or answers automatically.
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -110,7 +111,8 @@ def insight_public_metadata(entry):
     try:
         if dataset_id and get_dataset_metadata(dataset_id) is not None:
             dataset_status = "ready"
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Could not check dataset %s status for insight: %s", dataset_id, exc)
         dataset_status = "deleted"
     metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
     answer_text = entry.get("answer") or ""

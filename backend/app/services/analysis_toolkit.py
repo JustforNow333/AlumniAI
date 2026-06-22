@@ -1,3 +1,4 @@
+import logging
 import re
 import warnings
 
@@ -205,6 +206,7 @@ def execute_operation(df, operation, assumptions=None):
         if operation_type == "group_by_month":
             return _op_group_by_month(df, params, assumptions)
     except Exception as exc:
+        logging.getLogger(__name__).warning("Operation '%s' raised an unexpected error: %s", operation_type, exc, exc_info=True)
         return _error_result(operation_type, f"Operation failed: {exc}")
 
     return _error_result(operation_type, f"Operation '{operation_type}' is not implemented.")

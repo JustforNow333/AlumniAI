@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 
@@ -74,7 +75,8 @@ def present_answer(question, plan, operation_results, dataset_context):
             temperature=0.2,
             tools=[],
         )
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Presenter model call failed, using deterministic fallback: %s", exc)
         return fallback
 
     try:
