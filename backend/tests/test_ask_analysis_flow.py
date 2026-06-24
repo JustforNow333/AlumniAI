@@ -859,7 +859,8 @@ def test_healthcare_query_includes_hospital_rows_excluded_from_tech(client):
     assert {row["First Name"] for row in result["rows"]} == {"Marie", "Bob"}
 
 
-def test_debug_classify_row_endpoint_explains_classification(client):
+def test_debug_classify_row_endpoint_explains_classification(client, monkeypatch):
+    monkeypatch.setenv("FLASK_DEBUG", "1")
     df = pd.DataFrame(
         {
             "First Name": ["Neil", "Bo"],

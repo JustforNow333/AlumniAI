@@ -310,20 +310,44 @@ def load_dataset_dataframe(dataset_id):
     return df, metadata
 
 
+def _is_within(candidate, root):
+    """True if *candidate* is *root* itself or nested inside it.
+
+    Uses path-component containment (not string prefixes) so that a sibling
+    directory such as ``/data/uploads_evil`` is not mistaken for ``/data/uploads``.
+    """
+    try:
+        return candidate == root or candidate.is_relative_to(root)
+    except (AttributeError, ValueError):
+        return False
+
+
 def _resolve_dataset_file_path(file_path):
     path = Path(str(file_path or ""))
-    if path.is_absolute():
-        return path
-
     paths = get_storage_paths()
     stored_filename = path.name
+    upload_root = paths["upload_folder"].resolve()
+    data_root = paths["data_folder"].resolve()
+    allowed_roots = (upload_root, data_root)
+
+    if path.is_absolute():
+        resolved = path.resolve()
+        if not any(_is_within(resolved, root) for root in allowed_roots):
+            raise DatasetFileMissingError("Dataset file path is outside allowed storage.")
+        return resolved
 
     if path.parts and path.parts[0] == "uploads":
-        return paths["upload_folder"] / stored_filename
+        resolved = (paths["upload_folder"] / stored_filename).resolve()
+        if not _is_within(resolved, upload_root):
+            raise DatasetFileMissingError("Dataset file path is outside allowed storage.")
+        return resolved
 
     if path.parts:
-        candidate = paths["data_folder"].parent / path
-        if candidate.exists():
+        candidate = (paths["data_folder"].parent / path).resolve()
+        if any(_is_within(candidate, root) for root in allowed_roots) and candidate.exists():
             return candidate
 
-    return paths["upload_folder"] / stored_filename
+    resolved = (paths["upload_folder"] / stored_filename).resolve()
+    if not _is_within(resolved, upload_root):
+        raise DatasetFileMissingError("Dataset file path is outside allowed storage.")
+    return resolved

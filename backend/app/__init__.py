@@ -1,4 +1,6 @@
+import logging
 import os
+import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, send_from_directory
@@ -20,6 +22,7 @@ def create_app():
     upload_folder = os.path.join(backend_dir, "uploads")
     data_folder = os.path.join(backend_dir, "data")
 
+    app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
     app.config["UPLOAD_FOLDER"] = upload_folder
     app.config["DATA_FOLDER"] = data_folder
     app.config["DATASET_REGISTRY_PATH"] = os.path.join(data_folder, "datasets.json")
@@ -45,6 +48,14 @@ def create_app():
             }
         },
     )
+
+    @app.after_request
+    def set_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
 
     app.register_blueprint(upload_bp)
     app.register_blueprint(dataset_bp)
@@ -72,5 +83,10 @@ def create_app():
     @app.errorhandler(404)
     def not_found(_error):
         return jsonify({"error": "Route not found."}), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        logging.getLogger(__name__).exception("Unhandled server error: %s", error)
+        return jsonify({"error": "An internal server error occurred."}), 500
 
     return app
