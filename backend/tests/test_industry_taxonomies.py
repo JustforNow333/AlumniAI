@@ -11,11 +11,15 @@ from app.services.industry_taxonomies import (
 EXPECTED_INDUSTRIES = {
     "tech",
     "consulting",
+    "investment_banking",
     "banking",
     "finance",
     "healthcare",
     "law",
+    "government_legal",
     "education",
+    "marketing",
+    "operations",
     "media",
     "nonprofit",
     "startups",
@@ -63,14 +67,17 @@ def test_taxonomy_lookup_accepts_natural_names():
         # Consulting
         ("Which alumni work in consulting?", "consulting"),
         ("How many alumni are management consultants?", "consulting"),
-        ("Show me alumni at McKinsey or BCG.", "consulting"),
         # Banking
-        ("Which alumni are in investment banking?", "banking"),
-        ("Show me alumni in IB.", "banking"),
-        ("How many alumni work at Goldman Sachs or Morgan Stanley?", "banking"),
+        ("Which alumni are in investment banking?", "investment_banking"),
+        ("Show me alumni in IB.", "investment_banking"),
+        ("Which alumni work in banking?", "banking"),
         # Finance
         ("Which alumni work in finance?", "finance"),
         ("Show me alumni in asset management.", "finance"),
+        # Marketing / operations / government
+        ("Which alumni work in marketing?", "marketing"),
+        ("Show alumni in operations.", "operations"),
+        ("Which alumni work in government or legal roles?", "government_legal"),
         # Healthcare
         ("Which alumni work in healthcare?", "healthcare"),
         ("Show me alumni who are doctors.", "healthcare"),
@@ -86,7 +93,6 @@ def test_taxonomy_lookup_accepts_natural_names():
         # Media
         ("Which alumni work in media?", "media"),
         ("Show me alumni in entertainment.", "media"),
-        ("Which alumni work at Spotify or Netflix?", "media"),
         # Startups
         ("Which alumni work at startups?", "startups"),
         ("Which alumni are startup founders?", "startups"),
@@ -113,6 +119,9 @@ def test_industry_queries_classify_to_people_filter(question, industry):
     [
         ("Who works at Spotify?", "Spotify"),
         ("Show me alumni at Goldman Sachs.", "Goldman Sachs"),
+        ("How many alumni work at Goldman Sachs or Morgan Stanley?", "Goldman Sachs"),
+        ("Show me alumni at McKinsey or BCG.", "McKinsey"),
+        ("Which alumni work at Spotify or Netflix?", "Spotify"),
         ("Which alumni work at Cornell?", "Cornell"),
     ],
 )
@@ -171,7 +180,33 @@ def test_plain_finance_query_has_no_consulting_requirement():
     spec = classify_people_question("What alumni work in finance?")
     assert spec["industry"] == "finance"
     assert spec["required_industries"] == []
+    assert spec["excluded_industries"] == []
     assert spec["include_adjacent"] is False
+
+
+def test_finance_but_not_banking_sets_exclusions():
+    spec = classify_people_question("Show me alumni in finance but not banking.")
+    assert spec["industry"] == "finance"
+    assert spec["excluded_industries"] == ["banking", "investment_banking"]
+    assert spec["query_scope"] == "industry_exclusion"
+
+
+def test_finance_outside_investment_banking_sets_specific_exclusion():
+    spec = classify_people_question("Find finance alumni outside investment banking.")
+    assert spec["industry"] == "finance"
+    assert spec["excluded_industries"] == ["investment_banking"]
+
+
+def test_technical_roles_query_sets_technical_scope():
+    spec = classify_people_question("Which alumni have technical roles?")
+    assert spec["industry"] == "tech"
+    assert spec["query_scope"] == "technical_role"
+
+
+def test_marketing_growth_query_requests_growth_function():
+    spec = classify_people_question("Show marketing or growth alumni.")
+    assert spec["industry"] == "marketing"
+    assert "marketing_growth" in spec["include_functions"]
 
 
 def test_consulting_taxonomy_carries_broad_retrieval_keywords():
@@ -191,5 +226,5 @@ def test_non_people_questions_are_not_classified():
 
 
 def test_industry_for_question_prefers_more_specific_alias():
-    assert industry_for_question("Which alumni are in investment banking?") == "banking"
+    assert industry_for_question("Which alumni are in investment banking?") == "investment_banking"
     assert industry_for_question("Which alumni are in VC or private equity?") == "private_equity"

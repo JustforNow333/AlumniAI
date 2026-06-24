@@ -1012,13 +1012,12 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
                     "specialties": match.get("specialties") or [],
                 }
             )
-            if len(confirmed_rows) < limit:
-                confirmed_rows.append(
-                    {
-                        spec["header"]: _row_value_for_display(row, spec["source"])
-                        for spec in display_specs
-                    }
-                )
+            confirmed_rows.append(
+                {
+                    spec["header"]: _row_value_for_display(row, spec["source"])
+                    for spec in display_specs
+                }
+            )
             continue
 
         if classification == "adjacent" and dedupe_key not in seen_confirmed:
@@ -1029,7 +1028,8 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
             non_match_candidate_count += 1
 
     total_matches = len(seen_confirmed)
-    displayed_count = len(confirmed_rows)
+    scored_result_count = len(confirmed_rows)
+    displayed_count = min(scored_result_count, limit)
     uncertain_count = len(uncertain_keys - seen_confirmed)
     adjacent_included_count = len(adjacent_keys & seen_confirmed)
     adjacent_count = len(adjacent_keys - seen_confirmed)
@@ -1051,11 +1051,26 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
         "raw_candidate_count": len(candidate_indices),
         "direct_match_count": total_matches - adjacent_included_count,
         "adjacent_count": adjacent_count,
+        "adjacent_not_counted_count": adjacent_count,
         "adjacent_included_count": adjacent_included_count,
         "uncertain_count": uncertain_count,
+        "uncertain_not_counted_count": uncertain_count,
         "non_match_count": non_match_candidate_count,
+        "excluded_count": non_match_candidate_count,
+        "llm_ambiguous_candidate_count": uncertain_count,
         "classification_version": people_classifier.CLASSIFICATION_VERSION,
         "adjacent_included": bool(query_spec.get("include_adjacent")),
+    }
+    trace_fields = {
+        "intent_type": PEOPLE_FILTER_INTENT,
+        "query_scope": query_spec.get("query_scope") or "industry",
+        "target_industries": list(query_spec.get("industries") or []),
+        "excluded_industries": list(query_spec.get("excluded_industries") or []),
+        "taxonomy_used": industry,
+        "candidate_count": len(candidate_indices),
+        "final_display_count": displayed_count,
+        "scored_result_count": scored_result_count,
+        "display_columns": display_headers,
     }
 
     metrics = {
@@ -1067,22 +1082,28 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
         "total_rows": int(df.shape[0]),
         "raw_match_count": raw_match_count,
         "matched_row_count": total_matches,
-        "returned_row_count": displayed_count,
+        "returned_row_count": scored_result_count,
+        "scored_result_count": scored_result_count,
         "deduplicated": True,
         "search_columns": columns,
         "display_columns": display_headers,
         "search_terms": raw_terms,
         # Backward-compatible aliases for older frontend/tests.
         "rows_matched": total_matches,
-        "rows_returned": displayed_count,
+        "rows_returned": scored_result_count,
         "searched_columns": columns,
     }
     metrics.update(classification_counts)
+    metrics.update(trace_fields)
     extras = {
         "intent": PEOPLE_FILTER_INTENT,
         "entity": entity,
         "filter_type": filter_type,
         "industry": industry,
+        "query_scope": query_spec.get("query_scope") or "industry",
+        "target_industries": list(query_spec.get("industries") or []),
+        "excluded_industries": list(query_spec.get("excluded_industries") or []),
+        "taxonomy_used": industry,
         "criteria_label": criteria_label,
         "answer_label": answer_label,
         "total_dataset_rows": int(df.shape[0]),
@@ -1090,12 +1111,15 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
         "total_matches": total_matches,
         "displayed_count": displayed_count,
         "display_limit": limit,
+        "scored_result_count": scored_result_count,
+        "final_display_count": displayed_count,
         "visible_columns": display_headers,
         "search_columns": columns,
         "display_columns": display_headers,
         "debug": {"rows": debug_rows},
     }
     extras.update(classification_counts)
+    extras.update(trace_fields)
 
     summary = f"{answer_label}: {total_matches}"
     if filter_type == "industry":

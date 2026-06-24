@@ -71,24 +71,18 @@ def test_exception_status_codes():
 
 # --- get_file_type ---
 
-def test_get_file_type_csv():
-    assert get_file_type("data.csv") == "csv"
-
-
-def test_get_file_type_xlsx():
-    assert get_file_type("data.xlsx") == "xlsx"
-
-
-def test_get_file_type_unsupported():
-    assert get_file_type("data.txt") is None
-
-
-def test_get_file_type_none():
-    assert get_file_type(None) is None
-
-
-def test_get_file_type_no_extension():
-    assert get_file_type("noext") is None
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("data.csv", "csv"),
+        ("data.xlsx", "xlsx"),
+        ("data.txt", None),
+        (None, None),
+        ("noext", None),
+    ],
+)
+def test_get_file_type(filename, expected):
+    assert get_file_type(filename) == expected
 
 
 # --- build_stored_filename ---
@@ -337,9 +331,11 @@ def test_resolve_absolute_path(ctx):
     ensure_storage_dirs()
     inside = get_storage_paths()["upload_folder"] / "abc_file.csv"
     assert _resolve_dataset_file_path(str(inside)) == inside.resolve()
+
     # An absolute path outside allowed storage must be rejected (no traversal).
+    outside = get_storage_paths()["upload_folder"].parent.parent / "outside.csv"
     with pytest.raises(DatasetFileMissingError, match="outside allowed storage"):
-        _resolve_dataset_file_path("/absolute/path/file.csv")
+        _resolve_dataset_file_path(str(outside.resolve()))
 
 
 def test_resolve_uploads_prefix(ctx):
@@ -352,6 +348,12 @@ def test_resolve_relative_non_uploads(ctx, tmp_path):
     relative = "data/some_file.csv"
     result = _resolve_dataset_file_path(relative)
     assert "some_file.csv" in str(result)
+
+
+def test_resolve_relative_traversal_stays_in_upload_root(ctx):
+    ensure_storage_dirs()
+    result = _resolve_dataset_file_path("../outside.csv")
+    assert result == (get_storage_paths()["upload_folder"] / "outside.csv").resolve()
 
 
 def test_resolve_empty():

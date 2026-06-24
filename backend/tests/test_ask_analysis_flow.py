@@ -666,7 +666,8 @@ def test_finance_query_returns_finance_roles_even_if_not_consulting(client):
     assert_valid_answer(data)
     assert result["industry"] == "finance"
     first_names = {row["First Name"] for row in result["rows"]}
-    assert {"Ivan", "Pri", "Mona"}.issubset(first_names)
+    assert {"Pri", "Mona"}.issubset(first_names)
+    assert "Ivan" not in first_names
     assert "Ann" not in first_names
 
 
@@ -729,23 +730,23 @@ def test_confident_model_keyword_plan_for_consulting_still_uses_strict_classifie
 
 def test_investment_banking_query_excludes_generic_analyst(client):
     df = pd.DataFrame(
-        {
-            "First Name": ["Gail", "Lee", "Mia"],
-            "Last Name": ["Golden", "Analyst", "Merger"],
-            "Occupation": ["Analyst", "Analyst", "M&A Associate"],
-            "Employer": ["Goldman Sachs", "Community Food Pantry", "Evercore"],
-            "LinkedIn URL": ["", "", ""],
-        }
-    )
+            {
+                "First Name": ["Gail", "Lee", "Mia", "Max"],
+                "Last Name": ["Golden", "Analyst", "Banker", "Merger"],
+                "Occupation": ["Analyst", "Analyst", "Investment Banking Associate", "M&A Associate"],
+                "Employer": ["Goldman Sachs", "Community Food Pantry", "Evercore", "Evercore"],
+                "LinkedIn URL": ["", "", "", ""],
+            }
+        )
     dataset_id = upload_dataframe(client, df, "banking.csv")
 
     data = ask(client, dataset_id, "Which alumni work in investment banking?")
 
     result = data["result"]
     assert_valid_answer(data)
-    assert result["industry"] == "banking"
-    assert result["total_matches"] == 2
-    assert {row["First Name"] for row in result["rows"]} == {"Gail", "Mia"}
+    assert result["industry"] == "investment_banking"
+    assert result["total_matches"] == 1
+    assert {row["First Name"] for row in result["rows"]} == {"Mia"}
 
 
 def test_employer_query_uses_employer_filter_not_industry(client):

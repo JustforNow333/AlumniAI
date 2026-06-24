@@ -73,8 +73,8 @@ def test_assumptions_passed_through(sample_df):
         "assumptions": ["Data is clean"],
     }
     results = execute_analysis_plan(sample_df, plan)
-    assert len(results) == 1
     assert results[0]["status"] == "ok"
+    assert results[0]["assumptions"] == ["Data is clean"]
 
 
 def test_assumptions_non_list_ignored(sample_df):
@@ -83,5 +83,5 @@ def test_assumptions_non_list_ignored(sample_df):
         "assumptions": "not-a-list",
     }
     results = execute_analysis_plan(sample_df, plan)
-    assert len(results) == 1
     assert results[0]["status"] == "ok"
+    assert results[0]["assumptions"] == []

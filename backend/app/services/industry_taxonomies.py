@@ -306,31 +306,101 @@ TAXONOMIES = {
         ],
         "confidence_threshold": 0.8,
     },
-    "banking": {
-        "industry": "banking",
-        "criteria_label": "working in banking or investment banking",
+    "investment_banking": {
+        "industry": "investment_banking",
+        "criteria_label": "working in investment banking",
         "aliases": [
-            "banking",
             "investment banking",
             "investment banker",
             "investment bankers",
             "ib",
-            "banker",
-            "bankers",
-            "sales and trading",
-            "capital markets",
-            "equity research",
-            "m&a",
+            "m&a banking",
+            "mergers and acquisitions banking",
         ],
         "title_keywords": [
             "investment banking analyst",
             "investment banking associate",
             "investment banking",
-            "banker",
             "investment banker",
+        ],
+        "generic_title_keywords": ["analyst", "associate", "vice president"],
+        "employer_keywords": [
+            "investment bank",
             "capital markets",
+            "securities",
+        ],
+        "known_companies": [
+            "Goldman Sachs",
+            "Morgan Stanley",
+            "JPMorgan",
+            "J.P. Morgan",
+            "JP Morgan",
+            "Bank of America",
+            "BofA",
+            "Citi",
+            "Citigroup",
+            "Barclays",
+            "Evercore",
+            "Lazard",
+            "Moelis",
+            "PJT",
+            "Centerview",
+            "RBC",
+            "UBS",
+            "Deutsche Bank",
+            "Wells Fargo",
+            "Jefferies",
+            "Houlihan Lokey",
+            "William Blair",
+            "Guggenheim",
+            "Rothschild",
+            "Nomura",
+            "HSBC",
+        ],
+        "exclusion_keywords": [
+            "software engineer",
+            "risk analyst",
+            "corporate banking",
+            "commercial banking",
+            "wealth management",
+            "private wealth",
+            "asset management",
+        ],
+        "ambiguous_keywords": ["capital markets", "m&a", "mergers and acquisitions"],
+        "retrieval_keywords": [
+            "investment banking",
+            "investment banker",
             "m&a",
             "mergers and acquisitions",
+            "capital markets",
+            "evercore",
+            "lazard",
+            "moelis",
+            "goldman",
+            "morgan stanley",
+            "jpmorgan",
+        ],
+        "confidence_threshold": 0.85,
+    },
+    "banking": {
+        "industry": "banking",
+        "criteria_label": "working in banking",
+        "aliases": [
+            "banking",
+            "banker",
+            "bankers",
+            "banks",
+            "corporate banking",
+            "commercial banking",
+            "sales and trading",
+            "capital markets",
+            "equity research",
+        ],
+        "title_keywords": [
+            "banker",
+            "corporate banking",
+            "commercial banking",
+            "capital markets",
             "sales and trading",
             "s&t",
             "equity research",
@@ -623,6 +693,8 @@ TAXONOMIES = {
             "department chair",
             "postdoc",
             "phd student",
+            "corps member",
+            "program coordinator",
         ],
         "generic_title_keywords": ["principal", "researcher", "academic"],
         "employer_keywords": [
@@ -644,6 +716,7 @@ TAXONOMIES = {
             "Columbia University",
             "University of Chicago",
             "Latin School of Chicago",
+            "Teach For America",
         ],
         "exclusion_keywords": [],
         "ambiguous_keywords": [],
@@ -905,18 +978,296 @@ TAXONOMIES = {
         "ambiguous_keywords": ["capital", "investments", "partners"],
         "confidence_threshold": 0.8,
     },
+    "marketing": {
+        "industry": "marketing",
+        "criteria_label": "working in marketing",
+        "aliases": [
+            "marketing",
+            "advertising",
+            "brand",
+            "communications",
+            "pr",
+            "public relations",
+            "growth marketing",
+            "demand generation",
+            "seo",
+            "sem",
+        ],
+        "title_keywords": [
+            "marketing manager",
+            "marketing analyst",
+            "growth marketing analyst",
+            "growth marketing manager",
+            "account strategist",
+            "ads account strategist",
+            "media planner",
+            "brand strategist",
+            "product marketing manager",
+            "brand manager",
+            "artist marketing manager",
+            "communications manager",
+            "advertising strategist",
+            "performance marketing analyst",
+            "demand generation manager",
+            "lifecycle marketing manager",
+            "seo manager",
+            "sem manager",
+            "content marketing manager",
+            "digital marketing manager",
+            "marketing coordinator",
+            "marketing director",
+            "head of marketing",
+            "chief marketing officer",
+            "cmo",
+            "consumer insights analyst",
+        ],
+        "generic_title_keywords": [
+            "growth",
+            "strategy",
+            "community",
+            "partnerships",
+            "sales",
+            "product",
+            "business development",
+            "customer success",
+            "content",
+            "brand",
+            "communications",
+        ],
+        "employer_keywords": [
+            "marketing",
+            "advertising",
+            "media agency",
+            "creative agency",
+            "public relations",
+            "communications",
+        ],
+        "known_companies": [
+            "Ogilvy",
+            "Wieden+Kennedy",
+            "BBDO",
+            "Droga5",
+            "Edelman",
+            "Weber Shandwick",
+            "Dentsu",
+            "Publicis",
+            "Omnicom",
+            "IPG",
+        ],
+        "exclusion_keywords": [],
+        "ambiguous_keywords": ["growth", "brand", "content", "community"],
+        "retrieval_keywords": [
+            "marketing",
+            "advertising",
+            "brand",
+            "communications",
+            "growth",
+            "demand generation",
+            "seo",
+            "sem",
+            "content",
+        ],
+        "confidence_threshold": 0.8,
+    },
+    "operations": {
+        "industry": "operations",
+        "criteria_label": "working in operations",
+        "aliases": [
+            "operations",
+            "business operations",
+            "strategy and operations",
+            "strategy & operations",
+            "supply chain",
+            "logistics",
+            "revops",
+            "revenue operations",
+            "sales operations",
+            "people operations",
+            "clinical operations",
+            "program operations",
+            "chief operating officer",
+            "coo",
+        ],
+        "title_keywords": [
+            "operations manager",
+            "business operations",
+            "strategy and operations",
+            "strategy & operations",
+            "marketplace operations analyst",
+            "supply chain analyst",
+            "supply chain manager",
+            "logistics manager",
+            "sales operations",
+            "people operations",
+            "clinical operations",
+            "program operations",
+            "operations analyst",
+            "operations associate",
+            "operations leadership associate",
+            "director of operations",
+            "head of operations",
+            "manufacturing engineer",
+            "logistics analyst",
+            "revenue management analyst",
+            "chief operating officer",
+            "coo",
+        ],
+        "generic_title_keywords": [
+            "strategy",
+            "business",
+            "management",
+            "program manager",
+            "project manager",
+            "product operations",
+            "customer success",
+            "general manager",
+            "analyst",
+            "associate",
+        ],
+        "employer_keywords": [
+            "logistics",
+            "supply chain",
+            "fulfillment",
+            "operations",
+        ],
+        "known_companies": [
+            "UPS",
+            "FedEx",
+            "DHL",
+            "XPO Logistics",
+            "Flexport",
+            "Maersk",
+        ],
+        "exclusion_keywords": [],
+        "ambiguous_keywords": ["strategy", "business", "management", "program", "project"],
+        "retrieval_keywords": [
+            "operations",
+            "business operations",
+            "strategy and operations",
+            "supply chain",
+            "logistics",
+            "revops",
+            "revenue operations",
+            "sales operations",
+            "people operations",
+            "clinical operations",
+            "program operations",
+        ],
+        "confidence_threshold": 0.8,
+    },
+    "government_legal": {
+        "industry": "government_legal",
+        "criteria_label": "working in government, policy, or legal roles",
+        "aliases": [
+            "government",
+            "legal government",
+            "government legal",
+            "government/legal",
+            "public policy",
+            "policy",
+            "politics",
+            "public sector",
+            "law and government",
+            "government or legal",
+        ],
+        "title_keywords": [
+            "attorney",
+            "lawyer",
+            "legal counsel",
+            "associate attorney",
+            "law clerk",
+            "judicial clerk",
+            "paralegal",
+            "counsel",
+            "litigation associate",
+            "corporate counsel",
+            "legal assistant",
+            "policy analyst",
+            "legislative aide",
+            "government analyst",
+            "public policy analyst",
+            "city planner",
+            "federal analyst",
+            "campaign staff",
+        ],
+        "generic_title_keywords": ["analyst", "associate", "consultant", "public"],
+        "employer_keywords": [
+            "city government",
+            "state government",
+            "federal government",
+            "court",
+            "department of",
+            "office of",
+            "agency",
+            "senate",
+            "house of representatives",
+            "congress",
+            "mayor",
+            "governor",
+            "district attorney",
+            "public defender",
+            "us government",
+            "u.s. government",
+        ],
+        "known_companies": [
+            "U.S. Government",
+            "US Government",
+            "United States Senate",
+            "House of Representatives",
+            "Department of State",
+            "Department of Justice",
+            "Department of Defense",
+            "White House",
+            "Supreme Court",
+            "District Attorney",
+            "Public Defender",
+            "ACLU",
+            "World Bank",
+            "Skadden",
+        ],
+        "exclusion_keywords": [
+            "school",
+            "hospital",
+            "medical center",
+            "consulting",
+            "bank",
+            "capital",
+            "finance",
+        ],
+        "ambiguous_keywords": ["public", "community", "civic"],
+        "retrieval_keywords": [
+            "attorney",
+            "lawyer",
+            "legal",
+            "counsel",
+            "law clerk",
+            "judicial",
+            "policy",
+            "government",
+            "legislative",
+            "senate",
+            "congress",
+            "department of",
+            "public sector",
+        ],
+        "confidence_threshold": 0.8,
+    },
 }
 
 # Tie-break order when a question or company set matches several industries.
 # More specific industries come first; tech is last because its lists are broad.
 INDUSTRY_PRIORITY = [
+    "investment_banking",
     "banking",
     "venture_capital",
     "private_equity",
     "consulting",
+    "government_legal",
     "law",
     "healthcare",
     "education",
+    "marketing",
+    "operations",
     "media",
     "finance",
     "startups",
@@ -1027,12 +1378,6 @@ def classify_people_question(question):
 
     employers = _extract_employer_candidates(text)
     if employers:
-        industries = [_industries_for_company(employer) for employer in employers]
-        if len(employers) >= 2 and all(industries):
-            shared = set(industries[0]).intersection(*industries[1:])
-            if shared:
-                industry = next(name for name in INDUSTRY_PRIORITY if name in shared)
-                return _industry_spec(industry)
         return _employer_spec(employers)
 
     if re.search(r"\bstartups?\b", normalized):
@@ -1042,6 +1387,13 @@ def classify_people_question(question):
     if occupation_terms:
         return _occupation_spec(occupation_terms)
 
+    if _finance_exclusion_question(normalized):
+        return _industry_spec(
+            "finance",
+            excluded_industries=_excluded_industries_for_question("finance", normalized),
+            query_scope="industry_exclusion",
+        )
+
     industry = industry_for_question(text)
     if industry:
         return _industry_spec(
@@ -1049,6 +1401,8 @@ def classify_people_question(question):
             include_adjacent=_question_requests_adjacent(normalized),
             include_functions=_requested_functions_for_question(industry, normalized),
             required_industries=_required_intersection_industries(industry, normalized),
+            excluded_industries=_excluded_industries_for_question(industry, normalized),
+            query_scope=_query_scope_for_question(industry, normalized),
         )
 
     fallback_employer = _lowercase_employer_fallback(normalized)
@@ -1058,13 +1412,23 @@ def classify_people_question(question):
     return None
 
 
-def _industry_spec(industry, include_adjacent=False, include_functions=None, required_industries=None):
+def _industry_spec(
+    industry,
+    include_adjacent=False,
+    include_functions=None,
+    required_industries=None,
+    excluded_industries=None,
+    query_scope=None,
+):
     taxonomy = get_taxonomy(industry)
     include_functions = list(include_functions or [])
     required_industries = list(required_industries or [])
+    excluded_industries = list(excluded_industries or [])
     criteria_label = taxonomy["criteria_label"]
     if required_industries:
         criteria_label = f"{criteria_label} with {' and '.join(required_industries)} context"
+    if excluded_industries:
+        criteria_label = f"{criteria_label} excluding {' and '.join(excluded_industries)}"
     if include_functions:
         readable = ", ".join(label.replace("_", " ") for label in include_functions)
         criteria_label = f"{criteria_label} or in {readable} roles"
@@ -1077,8 +1441,10 @@ def _industry_spec(industry, include_adjacent=False, include_functions=None, req
         "industry": industry,
         "industries": [industry],
         "required_industries": required_industries,
+        "excluded_industries": excluded_industries,
         "include_functions": include_functions,
         "include_adjacent": bool(include_adjacent),
+        "query_scope": query_scope or "industry",
         "criteria_label": criteria_label,
         "answer_label": ANSWER_LABEL,
     }
@@ -1097,6 +1463,8 @@ def _requested_functions_for_question(industry, normalized):
         normalized,
     ):
         functions.append("internal_strategy")
+    if industry == "marketing" and re.search(r"\bgrowth\b", normalized):
+        functions.append("marketing_growth")
     return functions
 
 
@@ -1116,6 +1484,37 @@ def _required_intersection_industries(industry, normalized):
                     required.append(other)
                 break
     return required
+
+
+def _excluded_industries_for_question(industry, normalized):
+    if industry != "finance":
+        return []
+    excluded = []
+    if re.search(r"\b(?:but\s+not|not|outside|excluding|exclude)\s+(?:investment\s+banking|ib)\b", normalized):
+        excluded.append("investment_banking")
+    if re.search(r"\b(?:but\s+not|not|outside|excluding|exclude)\s+banking\b", normalized):
+        excluded.extend(["banking", "investment_banking"])
+    return list(dict.fromkeys(excluded))
+
+
+def _finance_exclusion_question(normalized):
+    return bool(
+        _term_matches(normalized, "finance")
+        and (
+            re.search(r"\b(?:but\s+not|not|outside|excluding|exclude)\s+banking\b", normalized)
+            or re.search(r"\b(?:but\s+not|not|outside|excluding|exclude)\s+(?:investment\s+banking|ib)\b", normalized)
+        )
+    )
+
+
+def _query_scope_for_question(industry, normalized):
+    if industry == "tech" and re.search(r"\btechnical\s+roles?\b|\btechnical\s+jobs?\b", normalized):
+        return "technical_role"
+    if industry == "investment_banking":
+        return "subindustry"
+    if _excluded_industries_for_question(industry, normalized):
+        return "industry_exclusion"
+    return "industry"
 
 
 def _employer_spec(employers):
@@ -1206,8 +1605,15 @@ def _normalize_industry_name(value):
         "pe": "private_equity",
         "privateequity": "private_equity",
         "private_equity": "private_equity",
+        "ib": "investment_banking",
+        "investmentbanking": "investment_banking",
+        "investment_banking": "investment_banking",
         "startup": "startups",
         "technology": "tech",
+        "government": "government_legal",
+        "governmentlegal": "government_legal",
+        "government_legal": "government_legal",
+        "legal_government": "government_legal",
     }
     return aliases.get(normalized, normalized)
 

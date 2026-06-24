@@ -132,6 +132,7 @@ def extract_normalized_response(response_json: Any) -> dict[str, Any]:
     displayed_count = _first_int(metrics, ["displayed_count", "returned_row_count", "rows_returned"])
     if displayed_count is None and rows:
         displayed_count = len(rows)
+    scored_result_count = _first_int(metrics, ["scored_result_count", "returned_row_count", "rows_returned"])
 
     return {
         "answer_text": answer_text,
@@ -139,6 +140,7 @@ def extract_normalized_response(response_json: Any) -> dict[str, Any]:
         "displayed_columns": displayed_columns,
         "count": primary_count,
         "displayed_count": displayed_count,
+        "scored_result_count": scored_result_count,
         "metrics": metrics,
         "raw_response": raw,
         "extraction_source": source,
@@ -270,7 +272,15 @@ def score_case(
                 "Returned row names did not exactly match the expected filtered rows.",
             )
 
-    if rows and displayed_count is not None and int(displayed_count) != len(rows):
+    scored_result_count = normalized_response.get("scored_result_count")
+    if rows and scored_result_count is not None and int(scored_result_count) != len(rows):
+        _add_failure(
+            failures,
+            failure_categories,
+            "count_mismatch",
+            f"Scored result count was {scored_result_count}, but the response included {len(rows)} rows.",
+        )
+    elif rows and displayed_count is not None and int(displayed_count) > len(rows):
         _add_failure(
             failures,
             failure_categories,

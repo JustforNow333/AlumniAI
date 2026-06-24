@@ -20,6 +20,15 @@ FINANCE = {"industries": ["finance"]}
 FINANCE_CONSULTING = {"industries": ["consulting"], "required_industries": ["finance"]}
 CONSULTING_OR_STRATEGY = {"industries": ["consulting"], "include_functions": ["internal_strategy"]}
 CONSULTING_WITH_ADJACENT = {"industries": ["consulting"], "include_adjacent": True}
+TECH = {"industries": ["tech"], "query_scope": "industry"}
+TECHNICAL_ROLE = {"industries": ["tech"], "query_scope": "technical_role"}
+INVESTMENT_BANKING = {"industries": ["investment_banking"], "query_scope": "subindustry"}
+FINANCE_NOT_BANKING = {"industries": ["finance"], "excluded_industries": ["banking", "investment_banking"]}
+FINANCE_OUTSIDE_IB = {"industries": ["finance"], "excluded_industries": ["investment_banking"]}
+MARKETING = {"industries": ["marketing"]}
+MARKETING_OR_GROWTH = {"industries": ["marketing"], "include_functions": ["marketing_growth"]}
+OPERATIONS = {"industries": ["operations"]}
+GOVERNMENT_LEGAL = {"industries": ["government_legal"]}
 
 
 def consulting(occupation, employer):
@@ -156,9 +165,12 @@ def test_transaction_advisory_at_kpmg_is_consulting_and_finance_related():
     assert "transaction_advisory" in result["specialties"]
 
 
-def test_investment_banker_is_finance_but_not_consulting():
+def test_investment_banker_is_investment_banking_not_plain_finance_or_consulting():
+    investment_banking_result = classify_candidate("Investment Banking Analyst", "Goldman Sachs", INVESTMENT_BANKING)
+    assert investment_banking_result["count_as_match"] is True
+
     finance_result = classify_candidate("Investment Banking Analyst", "Goldman Sachs", FINANCE)
-    assert finance_result["count_as_match"] is True
+    assert finance_result["count_as_match"] is False
 
     consulting_result = classify_candidate("Investment Banking Analyst", "Goldman Sachs", CONSULTING)
     assert consulting_result["classification"] == "non_match"
@@ -200,12 +212,89 @@ def test_include_adjacent_counts_adjacent_rows_but_keeps_label():
 
 def test_finance_query_counts_finance_roles_that_are_not_consulting():
     for occupation, employer in [
-        ("Investment Banking Analyst", "Goldman Sachs"),
         ("Private Equity Associate", "Blackstone"),
         ("Portfolio Manager", "BlackRock"),
+        ("Risk Analyst", "Millennium Management"),
     ]:
         result = classify_candidate(occupation, employer, FINANCE)
         assert result["count_as_match"] is True, (occupation, employer)
+
+
+# ---------------------------------------------------------------------------
+# New taxonomy policies: tech scope, investment banking, finance exclusions,
+# marketing, operations, and government/legal.
+# ---------------------------------------------------------------------------
+
+def test_tech_known_employer_and_technical_role_scope():
+    assert classify_candidate("Head of Growth", "Spotify", TECH)["count_as_match"] is True
+    assert classify_candidate("Software Engineer", "Local Bakery", TECH)["count_as_match"] is True
+
+    marketing_at_tech = classify_candidate("Marketing Manager", "Google", TECH)
+    assert marketing_at_tech["count_as_match"] is False
+
+    nontechnical = classify_candidate("Head of Growth", "Spotify", TECHNICAL_ROLE)
+    assert nontechnical["classification"] == "non_match"
+    assert nontechnical["count_as_match"] is False
+
+
+def test_tech_weak_product_or_analytics_titles_do_not_count_without_context():
+    for title in ["Product Manager", "Analytics Manager", "Head of Growth"]:
+        result = classify_candidate(title, "Local Bakery", TECH)
+        assert result["count_as_match"] is False
+
+
+def test_investment_banking_requires_title_or_context_not_employer_only():
+    assert classify_candidate("Investment Banking Analyst", "Goldman Sachs", INVESTMENT_BANKING)["count_as_match"] is True
+    assert classify_candidate("Software Engineer", "Goldman Sachs", INVESTMENT_BANKING)["classification"] == "non_match"
+    assert classify_candidate("Risk Analyst", "JPMorgan", INVESTMENT_BANKING)["classification"] == "non_match"
+    generic = classify_candidate("Analyst", "Evercore", INVESTMENT_BANKING)
+    assert generic["classification"] == "uncertain"
+    assert generic["count_as_match"] is False
+
+
+def test_banking_and_finance_are_separate_with_user_exclusions():
+    assert classify_candidate("Corporate Banking Analyst", "Citi", {"industries": ["banking"]})["count_as_match"] is True
+    assert classify_candidate("Portfolio Manager", "BlackRock", {"industries": ["banking"]})["count_as_match"] is False
+
+    assert classify_candidate("Portfolio Manager", "BlackRock", FINANCE_NOT_BANKING)["count_as_match"] is True
+    assert classify_candidate("Corporate Banking Analyst", "Citi", FINANCE_NOT_BANKING)["count_as_match"] is False
+    assert classify_candidate("Investment Banking Analyst", "Goldman Sachs", FINANCE_OUTSIDE_IB)["count_as_match"] is False
+    assert classify_candidate("Risk Analyst", "Millennium Management", FINANCE_OUTSIDE_IB)["count_as_match"] is True
+    assert classify_candidate("Risk Analyst", "JPMorgan", FINANCE_OUTSIDE_IB)["count_as_match"] is False
+
+
+def test_marketing_policy_excludes_generic_growth_for_plain_marketing():
+    assert classify_candidate("Growth Marketing Manager", "Acme", MARKETING)["count_as_match"] is True
+    plain_growth = classify_candidate("Head of Growth", "Spotify", MARKETING)
+    assert plain_growth["classification"] == "adjacent"
+    assert plain_growth["count_as_match"] is False
+    expanded = classify_candidate("Head of Growth", "Spotify", MARKETING_OR_GROWTH)
+    assert expanded["count_as_match"] is False
+    assert classify_candidate("Product Manager", "Spotify", MARKETING)["count_as_match"] is False
+
+
+def test_operations_policy_requires_operations_context():
+    assert classify_candidate("Operations Manager", "Acme", OPERATIONS)["count_as_match"] is True
+    assert classify_candidate("Business Operations Analyst", "Acme", OPERATIONS)["count_as_match"] is True
+    assert classify_candidate("Strategy and Operations Manager", "Acme", OPERATIONS)["count_as_match"] is True
+    assert classify_candidate("Supply Chain Analyst", "Acme", OPERATIONS)["count_as_match"] is True
+    assert classify_candidate("Business Analyst", "Acme", OPERATIONS)["count_as_match"] is False
+    assert classify_candidate("Strategy Manager", "Acme", OPERATIONS)["count_as_match"] is False
+    assert classify_candidate("General Manager", "Acme", OPERATIONS)["count_as_match"] is False
+
+
+def test_government_legal_policy_requires_direct_government_or_legal_signal():
+    assert classify_candidate("Policy Analyst", "City Government", GOVERNMENT_LEGAL)["count_as_match"] is True
+    assert classify_candidate("Attorney", "Skadden", GOVERNMENT_LEGAL)["count_as_match"] is True
+    assert classify_candidate("Program Manager", "Public School", GOVERNMENT_LEGAL)["count_as_match"] is False
+    assert classify_candidate("Operations Analyst", "Public Health Clinic", GOVERNMENT_LEGAL)["count_as_match"] is False
+
+
+def test_adjacent_and_uncertain_are_not_counted_by_default():
+    assert classify_candidate("Head of Growth", "Spotify", MARKETING)["classification"] == "adjacent"
+    assert classify_candidate("Head of Growth", "Spotify", MARKETING)["count_as_match"] is False
+    assert classify_candidate("Analyst", "Evercore", INVESTMENT_BANKING)["classification"] == "uncertain"
+    assert classify_candidate("Analyst", "Evercore", INVESTMENT_BANKING)["count_as_match"] is False
 
 
 # ---------------------------------------------------------------------------

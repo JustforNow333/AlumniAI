@@ -48,11 +48,15 @@ _RANK = {DIRECT_MATCH: 3, ADJACENT: 2, UNCERTAIN: 1, NON_MATCH: 0}
 EMPLOYER_INDUSTRY_LABELS = {
     "consulting": "consulting_professional_services",
     "banking": "financial_services",
+    "investment_banking": "financial_services",
     "finance": "financial_services",
     "venture_capital": "financial_services",
     "private_equity": "financial_services",
     "tech": "technology",
+    "marketing": "marketing",
+    "operations": "operations",
     "law": "law",
+    "government_legal": "government_legal",
     "healthcare": "healthcare",
     "education": "education",
     "media": "media",
@@ -65,6 +69,8 @@ JOB_FUNCTION_KEYWORDS = {
     "finance_investing": [
         "investment banking",
         "investment banker",
+        "m&a analyst",
+        "mergers and acquisitions",
         "banker",
         "private equity",
         "portfolio manager",
@@ -85,6 +91,20 @@ JOB_FUNCTION_KEYWORDS = {
         "investment analyst",
         "investment associate",
     ],
+    "banking": [
+        "corporate banking",
+        "commercial banking",
+        "credit analyst",
+        "capital markets",
+        "sales and trading",
+        "equity research",
+    ],
+    "investment_banking": [
+        "investment banking analyst",
+        "investment banking associate",
+        "investment banking",
+        "investment banker",
+    ],
     "internal_strategy": [
         "strategy",
         "strategic planning",
@@ -100,7 +120,26 @@ JOB_FUNCTION_KEYWORDS = {
         "chief product officer",
         "product strategy",
     ],
-    "operations": ["operations", "business operations"],
+    "operations": [
+        "operations manager",
+        "business operations",
+        "strategy and operations",
+        "strategy & operations",
+        "supply chain",
+        "logistics",
+        "revops",
+        "revenue operations",
+        "sales operations",
+        "people operations",
+        "clinical operations",
+        "program operations",
+        "operations analyst",
+        "operations associate",
+        "director of operations",
+        "head of operations",
+        "chief operating officer",
+        "coo",
+    ],
     "legal": ["attorney", "lawyer", "counsel", "law clerk", "paralegal", "judicial", "legal"],
     "engineering": [
         "software engineer",
@@ -113,7 +152,36 @@ JOB_FUNCTION_KEYWORDS = {
     ],
     "data_analytics": ["data scientist", "data analyst", "data engineer", "analytics", "data science"],
     "sales_business_development": ["sales", "business development", "account executive", "partnerships"],
-    "marketing_growth": ["marketing", "growth", "brand", "communications"],
+    "marketing": [
+        "marketing manager",
+        "marketing analyst",
+        "product marketing",
+        "brand manager",
+        "advertising",
+        "performance marketing",
+        "demand generation",
+        "lifecycle marketing",
+        "seo",
+        "sem",
+        "content marketing",
+        "digital marketing",
+        "marketing coordinator",
+        "marketing director",
+        "head of marketing",
+        "chief marketing officer",
+        "cmo",
+    ],
+    "marketing_growth": ["growth marketing", "growth"],
+    "communications_pr": ["communications manager", "public relations", "pr manager"],
+    "government_policy": [
+        "policy analyst",
+        "legislative aide",
+        "government analyst",
+        "public policy analyst",
+        "city planner",
+        "federal analyst",
+        "campaign staff",
+    ],
     "education_teaching": ["teacher", "professor", "lecturer", "instructor", "educator"],
 }
 
@@ -133,11 +201,17 @@ SPECIALTY_KEYWORDS = {
     "product_strategy": ["product strategy"],
     "business_operations": ["business operations", "strategy & operations", "strategy and operations"],
     "investment_banking": ["investment banking", "investment banker"],
+    "m_and_a": ["m&a", "mergers and acquisitions"],
+    "capital_markets": ["capital markets"],
     "private_equity": ["private equity"],
     "asset_management": ["asset management"],
     "wealth_management": ["wealth management", "private wealth"],
     "legal": ["attorney", "lawyer", "law clerk", "paralegal", "counsel", "judicial"],
     "risk": ["risk"],
+    "marketing": ["marketing", "brand manager", "advertising", "demand generation", "product marketing"],
+    "growth": ["growth marketing", "head of growth"],
+    "operations": ["operations", "business operations", "supply chain", "logistics", "revenue operations"],
+    "government_policy": ["policy analyst", "legislative", "government analyst", "public policy"],
 }
 
 # Titles that clearly indicate professional/client advisory work. With a
@@ -200,6 +274,200 @@ INDUSTRY_RELATED_SPECIALTIES = {
     "tech": {"technology_consulting"},
 }
 
+TECHNICAL_TITLE_PHRASES = [
+    "software engineer",
+    "software developer",
+    "backend engineer",
+    "front end engineer",
+    "frontend engineer",
+    "full stack engineer",
+    "data scientist",
+    "data engineer",
+    "machine learning engineer",
+    "ml engineer",
+    "ai engineer",
+    "cloud engineer",
+    "cloud support engineer",
+    "security engineer",
+    "cybersecurity analyst",
+    "site reliability engineer",
+    "devops engineer",
+    "systems engineer",
+    "solutions engineer",
+    "blockchain engineer",
+    "ux engineer",
+    "technical program manager",
+    "technical product manager",
+    "it director",
+    "cto",
+    "chief technology officer",
+    "data platform analyst",
+    "seo product analyst",
+]
+
+WEAK_TECH_TITLE_PHRASES = [
+    "product manager",
+    "analytics manager",
+    "head of growth",
+    "growth",
+    "digital",
+    "platform",
+    "product",
+]
+
+INVESTMENT_BANKING_TITLE_PHRASES = [
+    "investment banking analyst",
+    "investment banking associate",
+    "investment banking",
+    "investment banker",
+]
+
+INVESTMENT_BANKING_CONTEXT_PHRASES = [
+]
+
+BANKING_TITLE_PHRASES = [
+    "banker",
+    "corporate banking",
+    "commercial banking",
+    "credit analyst",
+    "capital markets",
+    "sales and trading",
+    "wealth management",
+    "private wealth",
+    "strategic advisory",
+    "restructuring",
+]
+
+FINANCE_TITLE_PHRASES = [
+    "financial analyst",
+    "finance",
+    "portfolio manager",
+    "asset management",
+    "wealth management",
+    "hedge fund",
+    "trader",
+    "trading",
+    "quant",
+    "quantitative researcher",
+    "investment analyst",
+    "investment associate",
+    "research analyst",
+    "equity research",
+    "investment management",
+    "investor",
+    "private equity",
+    "venture capital",
+    "quantitative developer",
+    "risk analyst",
+]
+
+MARKETING_DIRECT_PHRASES = [
+    "marketing manager",
+    "marketing analyst",
+    "growth marketing analyst",
+    "growth marketing manager",
+    "account strategist",
+    "ads account strategist",
+    "media planner",
+    "brand strategist",
+    "product marketing manager",
+    "brand manager",
+    "artist marketing manager",
+    "communications manager",
+    "advertising strategist",
+    "performance marketing analyst",
+    "demand generation manager",
+    "lifecycle marketing manager",
+    "seo manager",
+    "sem manager",
+    "content marketing manager",
+    "digital marketing manager",
+    "digital marketing associate",
+    "digital marketing",
+    "marketing coordinator",
+    "marketing director",
+    "head of marketing",
+    "chief marketing officer",
+    "cmo",
+    "consumer insights analyst",
+]
+
+MARKETING_ADJACENT_PHRASES = [
+    "head of growth",
+    "growth",
+    "strategy",
+    "community",
+    "partnerships",
+    "sales",
+    "product",
+    "business development",
+    "customer success",
+    "content",
+    "brand",
+    "communications",
+]
+
+OPERATIONS_DIRECT_PHRASES = [
+    "operations manager",
+    "business operations",
+    "strategy and operations",
+    "strategy & operations",
+    "marketplace operations analyst",
+    "supply chain analyst",
+    "supply chain manager",
+    "logistics manager",
+    "sales operations",
+    "people operations",
+    "clinical operations",
+    "program operations",
+    "operations analyst",
+    "operations associate",
+    "operations leadership associate",
+    "director of operations",
+    "head of operations",
+    "manufacturing engineer",
+    "logistics analyst",
+    "revenue management analyst",
+    "chief operating officer",
+    "coo",
+]
+
+OPERATIONS_ADJACENT_PHRASES = [
+    "strategy",
+    "business analyst",
+    "business",
+    "management",
+    "program manager",
+    "project manager",
+    "product operations",
+    "customer success",
+    "general manager",
+    "revops",
+    "revenue operations",
+    "analyst",
+    "associate",
+]
+
+GOVERNMENT_LEGAL_TITLE_PHRASES = [
+    "attorney",
+    "lawyer",
+    "legal counsel",
+    "associate attorney",
+    "law clerk",
+    "judicial clerk",
+    "paralegal",
+    "counsel",
+    "litigation associate",
+    "corporate counsel",
+    "legal assistant",
+    "policy analyst",
+    "legislative aide",
+    "government analyst",
+    "public policy analyst",
+    "city planner",
+    "federal analyst",
+]
+
 
 def query_spec_from_filter(filter_spec, default_industry=None):
     """Build a normalized query spec from a people_filter spec produced by
@@ -212,8 +480,11 @@ def query_spec_from_filter(filter_spec, default_industry=None):
     return {
         "industries": industries,
         "required_industries": [str(item) for item in filter_spec.get("required_industries") or [] if str(item).strip()],
+        "excluded_industries": [str(item) for item in filter_spec.get("excluded_industries") or [] if str(item).strip()],
+        "excluded_functions": [str(item) for item in filter_spec.get("excluded_functions") or [] if str(item).strip()],
         "include_functions": [str(item) for item in filter_spec.get("include_functions") or [] if str(item).strip()],
         "include_adjacent": bool(filter_spec.get("include_adjacent")),
+        "query_scope": str(filter_spec.get("query_scope") or "industry"),
     }
 
 
@@ -285,7 +556,7 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
 
     for industry in industries:
         outcome = _classify_for_industry(
-            industry, occupation_text, employer_text, profile, descriptor_text, model_classifier
+            industry, occupation_text, employer_text, profile, descriptor_text, model_classifier, query_spec
         )
         if _RANK[outcome[0]] > _RANK[classification] or (outcome[0] == classification and outcome[1] > confidence):
             classification, confidence, reason = outcome
@@ -294,9 +565,14 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
     # the query, not just the row, decides what counts.
     requested_functions = set(query_spec.get("include_functions") or [])
     if classification != DIRECT_MATCH and requested_functions.intersection(profile["job_function"]):
-        matched = sorted(requested_functions.intersection(profile["job_function"]))
-        classification, confidence = DIRECT_MATCH, max(confidence, 0.85)
-        reason = f"Job function matches the requested function(s): {', '.join(matched)}."
+        matched_functions = requested_functions.intersection(profile["job_function"])
+        if "marketing_growth" in matched_functions and "technology" in profile["employer_industry"]:
+            classification, confidence = NON_MATCH, max(confidence, 0.85)
+            reason = "Growth role at a technology employer is not promoted by broad marketing/growth function matching."
+        else:
+            matched = sorted(matched_functions)
+            classification, confidence = DIRECT_MATCH, max(confidence, 0.85)
+            reason = f"Job function matches the requested function(s): {', '.join(matched)}."
 
     # Intersection queries ("finance consulting"): a direct match must also show
     # evidence for every required industry.
@@ -306,6 +582,29 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
                 classification, confidence = ADJACENT, min(confidence, 0.6)
                 reason = f"Direct match for the primary criteria but no {required} evidence; the query requires the {required} intersection."
                 break
+
+    if classification == DIRECT_MATCH:
+        for excluded in query_spec.get("excluded_industries") or []:
+            excluded_outcome = _classify_for_industry(
+                excluded,
+                occupation_text,
+                employer_text,
+                profile,
+                descriptor_text,
+                None,
+                {"industries": [excluded], "query_scope": "industry"},
+            )
+            if excluded_outcome[0] == DIRECT_MATCH:
+                classification, confidence = NON_MATCH, 0.9
+                reason = f"Excluded by user-requested excluded industry '{excluded}': {excluded_outcome[2]}"
+                break
+
+    if classification == DIRECT_MATCH:
+        excluded_functions = set(query_spec.get("excluded_functions") or [])
+        if excluded_functions.intersection(profile["job_function"]):
+            matched = sorted(excluded_functions.intersection(profile["job_function"]))
+            classification, confidence = NON_MATCH, 0.9
+            reason = f"Excluded by user-requested excluded function(s): {', '.join(matched)}."
 
     count_as_match = classification == DIRECT_MATCH and confidence >= DIRECT_MATCH_CONFIDENCE_FLOOR
     if classification == ADJACENT and query_spec.get("include_adjacent"):
@@ -325,10 +624,10 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
     return result
 
 
-def _classify_for_industry(industry, occupation, employer, profile, descriptor_text, model_classifier):
+def _classify_for_industry(industry, occupation, employer, profile, descriptor_text, model_classifier, query_spec=None):
     policy = _INDUSTRY_POLICIES.get(_taxonomy_key(industry))
     if policy:
-        outcome = policy(occupation, employer, profile)
+        outcome = policy(occupation, employer, profile, query_spec or {})
         # The model is consulted only for rows the deterministic rules could not
         # decide — never to promote adjacent/non-match rows.
         if outcome[0] == UNCERTAIN and model_classifier:
@@ -356,7 +655,206 @@ def _classify_with_taxonomy(industry, occupation, employer, descriptor_text, mod
     return NON_MATCH, float(match.get("confidence", 0.0)), match.get("internal_reason", "")
 
 
-def _classify_for_consulting(occupation, employer, profile):
+def _classify_for_tech(occupation, employer, profile, query_spec=None):
+    query_spec = query_spec or {}
+    taxonomy = get_taxonomy("tech") or {}
+    technical = matched_term(occupation, TECHNICAL_TITLE_PHRASES)
+    if technical:
+        if matched_term(occupation, ["clinical data analyst"]):
+            return NON_MATCH, 0.85, "Clinical data title is treated as healthcare context, not tech industry."
+        if matched_term(employer, ["aqr capital", "blackrock", "bank", "capital management", "investment"]):
+            return NON_MATCH, 0.8, "Data title at a finance employer is not treated as tech industry."
+        return DIRECT_MATCH, 0.98, f"Explicit technical title ('{technical}')."
+
+    if "consulting_professional_services" in profile["employer_industry"]:
+        return NON_MATCH, 0.9, "Professional-services/consulting employer without a technical title is not a tech-industry match."
+    if matched_term(occupation, ["marketplace operations"]):
+        return NON_MATCH, 0.85, "Marketplace operations is tracked as operations unless the title is explicitly technical."
+
+    known = known_company_match(employer, taxonomy.get("known_companies") or [])
+    strong = matched_term(
+        employer,
+        [
+            "technologies",
+            "technology",
+            "software",
+            "ai",
+            "cloud",
+            "cybersecurity",
+            "fintech",
+            "blockchain",
+            "crypto",
+            "saas",
+        ],
+    )
+    if query_spec.get("query_scope") == "technical_role":
+        if known or strong:
+            return (
+                NON_MATCH,
+                0.85,
+                "Employer indicates the tech industry, but the query asks for technical roles and the title is not technical.",
+            )
+        return NON_MATCH, 0.2, "No explicit technical title was found."
+
+    if known:
+        if matched_term(occupation, ["marketing", "ads account strategist", "account strategist", "artist marketing"]):
+            return NON_MATCH, 0.85, "Known tech employer with an explicitly marketing/advertising title."
+        return DIRECT_MATCH, 0.95, f"Employer is a known technology company: {known}."
+    if strong:
+        return DIRECT_MATCH, 0.88, f"Employer has a strong technology-industry signal ('{strong}')."
+
+    weak = matched_term(occupation, WEAK_TECH_TITLE_PHRASES)
+    if weak:
+        return ADJACENT, 0.55, f"Title has tech-adjacent wording ('{weak}') but no technical title or tech employer."
+
+    ambiguous = matched_term(employer, taxonomy.get("ambiguous_keywords") or [])
+    if ambiguous:
+        return UNCERTAIN, 0.45, f"Employer has ambiguous wording for tech ('{ambiguous}') without enough confirming context."
+
+    return NON_MATCH, 0.2, "No technical title or technology-industry employer signal was found."
+
+
+def _classify_for_investment_banking(occupation, employer, profile, query_spec=None):
+    taxonomy = get_taxonomy("investment_banking") or {}
+    explicit = matched_term(occupation, INVESTMENT_BANKING_TITLE_PHRASES)
+    if explicit:
+        return DIRECT_MATCH, 0.98, f"Title explicitly indicates investment banking ('{explicit}')."
+
+    employer_is_ib = bool(known_company_match(employer, taxonomy.get("known_companies") or []))
+    contextual = matched_term(occupation, INVESTMENT_BANKING_CONTEXT_PHRASES)
+    if contextual and employer_is_ib:
+        return DIRECT_MATCH, 0.9, f"Investment-bank employer with investment-banking context in title ('{contextual}')."
+
+    if matched_term(occupation, ["corporate banking", "commercial banking", "risk analyst", "wealth management", "asset management"]):
+        return NON_MATCH, 0.85, "Banking or finance role is not investment banking."
+
+    if employer_is_ib and matched_term(occupation, ["analyst", "associate", "vice president"]):
+        return UNCERTAIN, 0.45, "Known investment bank employer with a generic finance title; title does not prove investment banking."
+    if employer_is_ib:
+        return NON_MATCH, 0.75, "Known investment bank employer alone is not enough for investment banking."
+
+    return NON_MATCH, 0.2, "No investment-banking title or context was found."
+
+
+def _classify_for_banking(occupation, employer, profile, query_spec=None):
+    taxonomy = get_taxonomy("banking") or {}
+    if "government_legal" in profile["employer_industry"]:
+        return NON_MATCH, 0.9, "Government/legal employer is not treated as banking despite weak bank wording."
+
+    title = matched_term(occupation, BANKING_TITLE_PHRASES + INVESTMENT_BANKING_TITLE_PHRASES)
+    if title:
+        return DIRECT_MATCH, 0.92, f"Title indicates banking ('{title}')."
+
+    employer_is_bank = bool(
+        known_company_match(employer, taxonomy.get("known_companies") or [])
+        or matched_term(employer, taxonomy.get("employer_keywords") or [])
+    )
+    if employer_is_bank:
+        if matched_term(occupation, ["software engineer", "developer", "product manager", "marketing manager"]):
+            return NON_MATCH, 0.8, "Employer is a bank, but the title is not a banking role."
+        if not occupation:
+            return DIRECT_MATCH, 0.78, "Known banking employer with no title; broad banking query treats employer as sufficient."
+        if matched_term(occupation, ["analyst", "associate", "vice president", "risk", "credit", "finance"]):
+            return DIRECT_MATCH, 0.78, "Banking employer with a plausible banking/finance title."
+        return UNCERTAIN, 0.45, "Banking employer with an unclear title."
+
+    return NON_MATCH, 0.2, "No banking title or employer signal was found."
+
+
+def _classify_for_finance(occupation, employer, profile, query_spec=None):
+    taxonomy = get_taxonomy("finance") or {}
+    if "government_legal" in profile["employer_industry"]:
+        return NON_MATCH, 0.9, "Government/legal employer (e.g. a development/world bank) is not treated as finance."
+    banking_outcome = _classify_for_banking(occupation, employer, profile, query_spec or {})
+    if banking_outcome[0] == DIRECT_MATCH:
+        return NON_MATCH, 0.88, f"Banking is classified separately from finance: {banking_outcome[2]}"
+
+    title = matched_term(occupation, FINANCE_TITLE_PHRASES + INVESTMENT_BANKING_TITLE_PHRASES)
+    if title:
+        return DIRECT_MATCH, 0.9, f"Title indicates finance ('{title}')."
+
+    employer_is_finance = bool(
+        known_company_match(employer, taxonomy.get("known_companies") or [])
+        or matched_term(employer, taxonomy.get("employer_keywords") or [])
+    )
+    if employer_is_finance:
+        return DIRECT_MATCH, 0.82, f"Employer indicates finance or financial services ({employer})."
+
+    return NON_MATCH, 0.2, "No finance title or employer signal was found."
+
+
+def _classify_for_marketing(occupation, employer, profile, query_spec=None):
+    query_spec = query_spec or {}
+    direct = matched_term(occupation, MARKETING_DIRECT_PHRASES)
+    if direct:
+        return DIRECT_MATCH, 0.95, f"Title explicitly indicates marketing ('{direct}')."
+
+    if "marketing_growth" in set(query_spec.get("include_functions") or []) and matched_term(occupation, ["growth", "head of growth"]):
+        if "technology" in profile["employer_industry"] and not matched_term(occupation, ["growth marketing"]):
+            return NON_MATCH, 0.85, "Growth role at a technology employer is tracked as tech unless the title explicitly says growth marketing."
+        return DIRECT_MATCH, 0.82, "The query explicitly includes growth roles and the title has growth responsibility."
+
+    adjacent = matched_term(occupation, MARKETING_ADJACENT_PHRASES)
+    if adjacent:
+        return ADJACENT, 0.55, f"Title has marketing-adjacent wording ('{adjacent}') but no explicit marketing role."
+
+    taxonomy = get_taxonomy("marketing") or {}
+    employer_signal = known_company_match(employer, taxonomy.get("known_companies") or []) or matched_term(
+        employer, taxonomy.get("employer_keywords") or []
+    )
+    if employer_signal and (not occupation or matched_term(occupation, ["manager", "analyst", "director", "coordinator", "strategist"])):
+        return DIRECT_MATCH, 0.78, f"Marketing employer with a plausible marketing title ({employer_signal})."
+    if employer_signal:
+        return UNCERTAIN, 0.45, "Marketing/advertising employer with an unclear title."
+
+    return NON_MATCH, 0.2, "No explicit marketing title or marketing employer signal was found."
+
+
+def _classify_for_operations(occupation, employer, profile, query_spec=None):
+    direct = matched_term(occupation, OPERATIONS_DIRECT_PHRASES)
+    if direct:
+        if matched_term(occupation, ["product operations", "curriculum operations", "clinical operations", "revops"]):
+            return NON_MATCH, 0.85, f"Operations wording belongs to another labeled domain ('{direct}')."
+        return DIRECT_MATCH, 0.95, f"Title explicitly indicates operations ('{direct}')."
+
+    adjacent = matched_term(occupation, OPERATIONS_ADJACENT_PHRASES)
+    if adjacent:
+        return ADJACENT, 0.55, f"Title has operations-adjacent wording ('{adjacent}') but no explicit operations context."
+
+    taxonomy = get_taxonomy("operations") or {}
+    employer_signal = known_company_match(employer, taxonomy.get("known_companies") or []) or matched_term(
+        employer, taxonomy.get("employer_keywords") or []
+    )
+    if employer_signal and matched_term(occupation, ["manager", "analyst", "associate", "director"]):
+        return DIRECT_MATCH, 0.78, f"Operations/logistics employer with a plausible operations title ({employer_signal})."
+    if employer_signal:
+        return UNCERTAIN, 0.45, "Operations/logistics employer with an unclear title."
+
+    return NON_MATCH, 0.2, "No explicit operations title or operations employer signal was found."
+
+
+def _classify_for_government_legal(occupation, employer, profile, query_spec=None):
+    title = matched_term(occupation, GOVERNMENT_LEGAL_TITLE_PHRASES)
+    if title:
+        return DIRECT_MATCH, 0.95, f"Title directly indicates legal, policy, or government work ('{title}')."
+
+    taxonomy = get_taxonomy("government_legal") or {}
+    employer_signal = known_company_match(employer, taxonomy.get("known_companies") or []) or matched_term(
+        employer, taxonomy.get("employer_keywords") or []
+    )
+    if employer_signal:
+        if matched_term(employer, ["department of education"]) and not matched_term(occupation, ["policy", "legal", "attorney", "law"]):
+            return NON_MATCH, 0.85, "Education department context is treated as education unless the title is legal/policy."
+        return DIRECT_MATCH, 0.88, f"Employer directly indicates government/legal work ({employer_signal})."
+
+    weak = matched_term(" ".join([occupation, employer]), taxonomy.get("ambiguous_keywords") or [])
+    if weak:
+        return UNCERTAIN, 0.4, f"Weak public-sector wording ('{weak}') without direct government/legal evidence."
+
+    return NON_MATCH, 0.2, "No direct legal, policy, or government signal was found."
+
+
+def _classify_for_consulting(occupation, employer, profile, query_spec=None):
     """Strict consulting policy: consulting/advisory/professional-services
     evidence is required; strategy/management/operations language alone is only
     adjacent; finance and legal roles without advisory context never match."""
@@ -439,6 +937,13 @@ def _classify_for_consulting(occupation, employer, profile):
 
 
 _INDUSTRY_POLICIES = {
+    "tech": _classify_for_tech,
+    "investment_banking": _classify_for_investment_banking,
+    "banking": _classify_for_banking,
+    "finance": _classify_for_finance,
+    "marketing": _classify_for_marketing,
+    "operations": _classify_for_operations,
+    "government_legal": _classify_for_government_legal,
     "consulting": _classify_for_consulting,
 }
 
@@ -455,7 +960,16 @@ def _has_industry_signal(occupation, employer, profile, industry):
         return True
     taxonomy = get_taxonomy(key)
     if taxonomy:
-        return match_row_to_industry(occupation, employer, taxonomy)["status"] == "confirmed"
+        classification, _confidence, _reason = _classify_for_industry(
+            key,
+            occupation,
+            employer,
+            profile,
+            "",
+            None,
+            {"industries": [key], "query_scope": "industry"},
+        )
+        return classification == DIRECT_MATCH
     return False
 
 
@@ -475,6 +989,11 @@ def _model_outcome(industry, occupation, employer, model_classifier):
         confidence = 0.0
     threshold = float(taxonomy.get("confidence_threshold", 0.8))
     belongs = bool(outcome.get("belongs_to_industry"))
+    classification = str(outcome.get("classification") or "").lower()
+    if classification == DIRECT_MATCH:
+        belongs = True
+    elif classification in {NON_MATCH, ADJACENT}:
+        belongs = False
     reason = str(outcome.get("reason") or "Model classification.")
     if belongs and confidence >= threshold:
         return DIRECT_MATCH, confidence, f"Model classified the employer as {industry}: {reason}"

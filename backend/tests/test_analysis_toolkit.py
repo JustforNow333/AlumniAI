@@ -504,6 +504,44 @@ def test_tech_people_filter_uses_clean_person_columns_counts_and_strict_matching
     assert all("match_reason" not in row for row in result["rows"])
 
 
+def test_people_filter_returns_all_scored_rows_separate_from_display_limit():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace", "Katherine"],
+            "Last Name": ["Lovelace", "Hopper", "Johnson"],
+            "Occupation": ["Software Engineer", "Data Scientist", "Cloud Engineer"],
+            "Employer": ["Bakery", "Hospital", "School"],
+            "LinkedIn URL": ["", "", ""],
+        }
+    )
+
+    result = execute_operation(
+        df,
+        {
+            "type": "contains_any",
+            "params": {
+                "columns": ["Occupation", "Employer"],
+                "terms": ["engineer", "data scientist"],
+                "filter_mode": "people",
+                "people_filter": {
+                    "filter_type": "industry",
+                    "industry": "tech",
+                    "industries": ["tech"],
+                    "query_scope": "technical_role",
+                },
+                "limit": 1,
+            },
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["total_matches"] == 3
+    assert result["displayed_count"] == 1
+    assert result["scored_result_count"] == 3
+    assert result["metrics"]["returned_row_count"] == 3
+    assert len(result["rows"]) == 3
+
+
 def test_technical_title_and_employer_classification_helpers():
     assert is_explicit_technical_title("Software Engineer") is True
     assert is_explicit_technical_title("Data Scientist") is True
@@ -607,3 +645,122 @@ def test_text_search_can_suppress_match_reason_for_clean_person_filters():
     assert result["columns"] == ["First Name", "Last Name", "Title", "Employer"]
     assert "MATCH REASON" not in result["columns"]
     assert result["rows"] == [["Grace", "Hopper", "Scientist", "Navy"]]
+
+
+def _people_industry_filter(df, industry, *, excluded=None, query_scope="industry", limit=100):
+    spec = {
+        "filter_type": "industry",
+        "industry": industry,
+        "industries": [industry],
+        "query_scope": query_scope,
+    }
+    if excluded is not None:
+        spec["excluded_industries"] = list(excluded)
+    return execute_operation(
+        df,
+        {
+            "type": "contains_any",
+            "params": {
+                "columns": ["Occupation", "Employer"],
+                "terms": ["analyst", "researcher", "associate", "manager"],
+                "filter_mode": "people",
+                "people_filter": spec,
+                "limit": limit,
+            },
+        },
+    )
+
+
+_BANKING_FINANCE_DF = pd.DataFrame(
+    {
+        "First Name": ["Ava", "Ben", "Cara", "Dan", "Eve", "Finn"],
+        "Last Name": ["Stone", "Royce", "Kim", "Webb", "Park", "Cole"],
+        "Occupation": [
+            "Investment Banking Analyst",
+            "Corporate Banking Analyst",
+            "Wealth Management Analyst",
+            "Quantitative Researcher",
+            "Portfolio Analyst",
+            "M&A Analyst",
+        ],
+        "Employer": [
+            "Goldman Sachs",
+            "Bank of America",
+            "UBS",
+            "Two Sigma",
+            "Citadel",
+            "Evercore",
+        ],
+        "LinkedIn URL": ["", "", "", "", "", ""],
+    }
+)
+
+
+def _names(result):
+    return {(row["First Name"], row["Last Name"]) for row in result["rows"]}
+
+
+def test_broad_banking_filter_counts_banking_titles_and_employers_not_only_ib():
+    result = _people_industry_filter(_BANKING_FINANCE_DF, "banking")
+    names = _names(result)
+    # Broad banking includes IB, corporate banking, wealth management and M&A.
+    assert ("Ava", "Stone") in names
+    assert ("Ben", "Royce") in names
+    assert ("Cara", "Kim") in names
+    assert ("Finn", "Cole") in names
+    # Hedge-fund finance rows are not broad banking.
+    assert ("Dan", "Webb") not in names
+    assert ("Eve", "Park") not in names
+    assert result["total_matches"] == 4
+    assert len(result["rows"]) == result["total_matches"]
+
+
+def test_investment_banking_filter_stays_narrow():
+    result = _people_industry_filter(_BANKING_FINANCE_DF, "investment_banking", query_scope="subindustry")
+    names = _names(result)
+    assert ("Ava", "Stone") in names  # explicit "Investment Banking" title
+    assert ("Finn", "Cole") in names  # M&A at an advisory bank is investment banking
+    # Corporate banking and wealth management are broad banking but not IB,
+    # and hedge-fund finance rows are never IB.
+    assert ("Ben", "Royce") not in names
+    assert ("Cara", "Kim") not in names
+    assert ("Dan", "Webb") not in names
+    assert ("Eve", "Park") not in names
+    # Narrow IB is strictly a subset of broad banking (which counts 4 here).
+    assert result["total_matches"] == 2
+
+
+def test_finance_exclusion_filter_returns_finance_rows_without_banking():
+    result = _people_industry_filter(
+        _BANKING_FINANCE_DF,
+        "finance",
+        excluded=["banking", "investment_banking"],
+        query_scope="industry_exclusion",
+    )
+    names = _names(result)
+    # Only the hedge-fund finance rows remain; every banking/IB row is excluded.
+    assert ("Dan", "Webb") in names
+    assert ("Eve", "Park") in names
+    assert ("Ava", "Stone") not in names
+    assert ("Ben", "Royce") not in names
+    assert ("Cara", "Kim") not in names
+    assert ("Finn", "Cole") not in names
+    assert result["total_matches"] == 2
+    # operation_results.rows is the source of truth: the final included set only,
+    # never the excluded banking rows or candidate rows.
+    assert len(result["rows"]) == result["total_matches"] == 2
+
+
+def test_world_bank_government_employer_is_not_counted_as_finance():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Gita"],
+            "Last Name": ["Rao"],
+            "Occupation": ["Research Analyst"],
+            "Employer": ["World Bank"],
+            "LinkedIn URL": [""],
+        }
+    )
+    result = _people_industry_filter(df, "finance")
+    assert result["total_matches"] == 0
+    assert result["rows"] == []

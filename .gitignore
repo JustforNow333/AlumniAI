@@ -101,6 +101,7 @@ Thumbs.db
 
 # Local AI agent/tool metadata
 .agents/
+.claude/
 .codex/
 
 # =========================

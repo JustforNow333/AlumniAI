@@ -26,7 +26,8 @@ MODEL_CLASSIFIER_INSTRUCTIONS = """
 You classify whether an employer belongs to a target industry.
 Return only valid JSON, no prose:
 {"belongs_to_industry": true/false, "confidence": 0.0-1.0,
- "classification": "confirmed" | "non_match" | "uncertain", "reason": "short rationale"}
+ "classification": "direct_match" | "adjacent" | "uncertain" | "non_match",
+ "count_as_match": true/false, "reason_code": "short_code", "reason": "short rationale"}
 """.strip()
 
 _model_cache = {}
@@ -254,6 +255,11 @@ def _apply_model_classifier(model_classifier, employer, occupation, taxonomy):
         confidence = 0.0
     threshold = float(taxonomy.get("confidence_threshold", 0.8))
     belongs = bool(outcome.get("belongs_to_industry"))
+    classification = str(outcome.get("classification") or "").lower()
+    if classification == "direct_match":
+        belongs = True
+    elif classification in {"non_match", "adjacent"}:
+        belongs = False
     reason = str(outcome.get("reason") or "Model classification.")
     if belongs and confidence >= threshold:
         return _employer_result("confirmed", "model_classification", confidence, f"Model classified employer as {taxonomy.get('industry')}: {reason}")

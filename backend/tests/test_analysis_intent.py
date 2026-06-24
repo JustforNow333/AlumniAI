@@ -356,3 +356,109 @@ def test_no_relevant_columns_returns_clarification_plan():
 
     assert plan["operations"] == []
     assert "no matching columns" in plan["cannot_answer_reason"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Hybrid regression: the model's rephrased user_goal must not distort
+# finance/banking people routing. Planning re-classifies the *original*
+# question, so misleading words the model adds ("or investment banking",
+# "excluding banking") cannot change the deterministic filter spec.
+# ---------------------------------------------------------------------------
+
+def _people_dataset_context():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada"],
+            "Last Name": ["Lovelace"],
+            "Occupation": ["Analyst"],
+            "Employer": ["Acme"],
+            "LinkedIn URL": [""],
+        }
+    )
+    return build_dataset_context(df)
+
+
+def _model_find_records_intent(original_question, rephrased_user_goal):
+    """Mimic a confident model find_records plan (the model never emits the
+    people_filter intent) carrying a rephrased user_goal alongside the verbatim
+    question stamped by infer_analysis_intent."""
+    return {
+        "intent": "find_records",
+        "target_entity": "rows",
+        "original_question": original_question,
+        "user_goal": rephrased_user_goal,
+        "concepts": [
+            {
+                "name": "people",
+                "definition": "",
+                "search_terms": ["analyst", "manager", "associate"],
+                "known_entities": [],
+            }
+        ],
+        "semantic_columns": {
+            "occupation": ["occupation", "title", "role"],
+            "employer": ["employer", "company"],
+        },
+        "filters": [
+            {
+                "concept": "people",
+                "apply_to_semantic_columns": ["occupation", "employer"],
+                "match_mode": "contains_any",
+            }
+        ],
+        "desired_output": {"format": "table", "semantic_columns": ["person_name", "occupation", "employer"]},
+    }
+
+
+def _people_filter_from_plan(plan):
+    params = plan["operations"][0]["params"]
+    assert params.get("filter_mode") == "people"
+    return params["people_filter"]
+
+
+def test_model_rephrasing_in_banking_to_investment_banking_still_routes_to_broad_banking():
+    context = _people_dataset_context()
+    intent = _model_find_records_intent(
+        "Find alumni in banking.",
+        "Find alumni whose employer, title, or notes indicate banking or investment banking.",
+    )
+    pf = _people_filter_from_plan(intent_to_analysis_plan(intent, context))
+    assert pf["industry"] == "banking"
+    assert pf["query_scope"] == "industry"
+    assert pf["excluded_industries"] == []
+
+
+def test_model_rephrasing_work_at_banks_routes_to_broad_banking():
+    context = _people_dataset_context()
+    intent = _model_find_records_intent(
+        "Which alumni work at banks?",
+        "Find alumni whose employer appears to be a bank or financial institution.",
+    )
+    pf = _people_filter_from_plan(intent_to_analysis_plan(intent, context))
+    assert pf["industry"] == "banking"
+    assert pf["query_scope"] == "industry"
+
+
+def test_model_rephrasing_finance_but_not_banking_keeps_finance_with_exclusions():
+    context = _people_dataset_context()
+    intent = _model_find_records_intent(
+        "Show me alumni in finance but not banking.",
+        "Find alumni in finance, while excluding those associated with banking.",
+    )
+    pf = _people_filter_from_plan(intent_to_analysis_plan(intent, context))
+    assert pf["industry"] == "finance"
+    assert pf["query_scope"] == "industry_exclusion"
+    assert "banking" in pf["excluded_industries"]
+    assert "investment_banking" in pf["excluded_industries"]
+
+
+def test_model_rephrasing_finance_outside_ib_keeps_finance_excluding_ib():
+    context = _people_dataset_context()
+    intent = _model_find_records_intent(
+        "Find finance alumni outside investment banking.",
+        "Find alumni with a finance background, excluding investment banking roles or employers.",
+    )
+    pf = _people_filter_from_plan(intent_to_analysis_plan(intent, context))
+    assert pf["industry"] == "finance"
+    assert pf["query_scope"] == "industry_exclusion"
+    assert "investment_banking" in pf["excluded_industries"]

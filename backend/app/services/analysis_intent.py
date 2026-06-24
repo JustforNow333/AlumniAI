@@ -267,6 +267,17 @@ Return this JSON shape:
 
 
 def infer_analysis_intent(question, dataset_context):
+    intent, valid, error = _infer_analysis_intent(question, dataset_context)
+    # Stamp the verbatim user question so downstream planning re-routes people
+    # questions through the deterministic classifier on the *original* wording,
+    # not the model's rephrased user_goal (which may inject misleading industry
+    # words like "investment banking" or "excluding banking").
+    if isinstance(intent, dict):
+        intent.setdefault("original_question", question)
+    return intent, valid, error
+
+
+def _infer_analysis_intent(question, dataset_context):
     if ai_service.client is None:
         return heuristic_intent(question, dataset_context), True, ""
 
@@ -432,7 +443,7 @@ def validate_analysis_intent(value):
 def intent_to_analysis_plan(intent, dataset_context):
     intent = intent if isinstance(intent, dict) else _unknown_intent("Invalid analysis intent.")
     if intent.get("clarification_needed"):
-        question_text = intent.get("user_goal") or intent.get("clarifying_question")
+        question_text = intent.get("original_question") or intent.get("user_goal") or intent.get("clarifying_question")
         people_spec = classify_people_question(question_text)
         if _should_use_alumni_tech_fallback(question_text, intent):
             intent = alumni_tech_fallback_intent(question_text)
@@ -884,10 +895,14 @@ def _plan_find_records(intent, resolved, assumptions):
     if people_filter_spec:
         params["filter_mode"] = "people"
         params["people_filter"] = dict(people_filter_spec)
-    elif not strict_people_filter and (inferred_spec := classify_people_question(intent.get("user_goal"))):
+    elif not strict_people_filter and (
+        inferred_spec := classify_people_question(intent.get("original_question") or intent.get("user_goal"))
+    ):
         # The model produced a confident keyword search, but the question is a
         # people/industry query: keyword hits may only be candidates, so route
-        # execution through the strict multi-label people classifier.
+        # execution through the strict multi-label people classifier. Classify
+        # the *original* question, not the model's rephrased user_goal, so
+        # finance/banking exclusion wording is not lost or distorted.
         params["filter_mode"] = "people"
         params["people_filter"] = dict(inferred_spec)
     elif strict_people_filter:
