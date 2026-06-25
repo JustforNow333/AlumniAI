@@ -181,6 +181,19 @@ def sanitize_operation_result(result: Any, question: Any = "") -> Any:
         sanitized["columns"] = safe_columns
         sanitized["rows"] = safe_rows
 
+    for row_key in ("direct_rows", "adjacent_rows", "uncertain_rows"):
+        if isinstance(sanitized.get(row_key), list):
+            source_columns = sanitized.get("visible_columns") or sanitized.get("display_columns") or sanitized.get("columns") or []
+            _safe_columns, safe_rows = sanitize_display_rows(source_columns, sanitized[row_key], question)
+            sanitized[row_key] = safe_rows
+
+    if isinstance(sanitized.get("row_sections"), list):
+        sanitized["row_sections"] = [
+            _sanitize_row_section(section, question)
+            for section in sanitized["row_sections"]
+            if isinstance(section, dict)
+        ]
+
     for key in ("visible_columns", "display_columns"):
         if isinstance(sanitized.get(key), list):
             sanitized[key] = sanitize_display_columns(sanitized[key], question)
@@ -190,6 +203,18 @@ def sanitize_operation_result(result: Any, question: Any = "") -> Any:
         metrics["display_columns"] = sanitize_display_columns(metrics["display_columns"], question)
 
     return sanitized
+
+
+def _sanitize_row_section(section: dict[str, Any], question: Any = "") -> dict[str, Any]:
+    clean_section = _strip_internal_mapping_keys(section)
+    columns, rows = sanitize_display_rows(
+        clean_section.get("columns") or [],
+        clean_section.get("rows") or [],
+        question,
+    )
+    clean_section["columns"] = columns
+    clean_section["rows"] = rows
+    return clean_section
 
 
 def sanitize_operation_results(results: Any, question: Any = "") -> list[Any]:

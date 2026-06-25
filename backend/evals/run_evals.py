@@ -248,8 +248,15 @@ def _run_direct_classifier_case(case: dict[str, Any], trace: ModelCallTrace) -> 
     occupation = classifier.get("occupation", "")
     industry = classifier.get("industry", "tech")
     descriptor_text = classifier.get("descriptor_text", "")
+    filter_spec = {"filter_type": "industry", "industry": industry, "industries": [industry]}
+    if classifier.get("query_scope"):
+        filter_spec["query_scope"] = classifier.get("query_scope")
+    if classifier.get("required_industries"):
+        filter_spec["required_industries"] = list(classifier.get("required_industries") or [])
+    if classifier.get("excluded_industries"):
+        filter_spec["excluded_industries"] = list(classifier.get("excluded_industries") or [])
     query_spec = people_classifier.query_spec_from_filter(
-        {"filter_type": "industry", "industry": industry, "industries": [industry]},
+        filter_spec,
         default_industry=industry,
     )
     model_classifier = budgeted_model_classifier(budget=int(classifier.get("model_budget") or 1))

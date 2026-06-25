@@ -367,6 +367,212 @@ def test_broad_alumni_tech_queries_do_not_return_analysis_plan_errors(client, qu
     assert result["total_matches"] == 2
 
 
+def _full_names(rows):
+    return {
+        f"{row.get('First Name', '')} {row.get('Last Name', '')}".strip()
+        for row in rows
+    }
+
+
+def test_broad_tech_query_returns_direct_adjacent_and_uncertain_sections(client):
+    df = pd.DataFrame(
+        [
+            {
+                "First Name": "Amir",
+                "Last Name": "Tavoli",
+                "Occupation": "Strategic Finance, Marketing & Growth",
+                "Employer": "OpenAI",
+                "LinkedIn URL": "linkedin.com/in/amir",
+                "Major": "Economics",
+            },
+            {
+                "First Name": "James",
+                "Last Name": "Gladstone",
+                "Occupation": "Global Product Lead",
+                "Employer": "Google",
+                "LinkedIn URL": "linkedin.com/in/james",
+                "Major": "History",
+            },
+            {
+                "First Name": "Ryan",
+                "Last Name": "Skinner",
+                "Occupation": "Product Manager",
+                "Employer": "Twilio",
+                "LinkedIn URL": "linkedin.com/in/ryan",
+                "Major": "Math",
+            },
+            {
+                "First Name": "Matthew",
+                "Last Name": "Fleischauer",
+                "Occupation": "Product Manager",
+                "Employer": "Workday",
+                "LinkedIn URL": "",
+                "Major": "Economics",
+            },
+            {
+                "First Name": "Kevin",
+                "Last Name": "Vogt-Lowell",
+                "Occupation": "AI Research Engineer",
+                "Employer": "MIT Lincoln labratory",
+                "LinkedIn URL": "",
+                "Major": "Computer Science",
+            },
+            {
+                "First Name": "Ashok",
+                "Last Name": "Arun",
+                "Occupation": "Founding Engineer",
+                "Employer": "Morph Systems",
+                "LinkedIn URL": "",
+                "Major": "Computer Science",
+            },
+            {
+                "First Name": "Victor",
+                "Last Name": "Bogert",
+                "Occupation": "Manager, Database Management Systems",
+                "Employer": "IQVIA",
+                "LinkedIn URL": "",
+                "Major": "Engineering",
+            },
+            {
+                "First Name": "Paul",
+                "Last Name": "Bader",
+                "Occupation": "Director, Professional Services",
+                "Employer": "InterSystems",
+                "LinkedIn URL": "",
+                "Major": "Government",
+            },
+            {
+                "First Name": "Michael",
+                "Last Name": "Bennett",
+                "Occupation": "Head of Government Solutions, North America",
+                "Employer": "ICEYE",
+                "LinkedIn URL": "",
+                "Major": "Government",
+            },
+            {
+                "First Name": "Christopher",
+                "Last Name": "Long",
+                "Occupation": "Independent Consultant",
+                "Employer": "Cell Systems Logic LLC",
+                "LinkedIn URL": "",
+                "Major": "Biology",
+            },
+            {
+                "First Name": "Juan",
+                "Last Name": "Gomez",
+                "Occupation": "Decision Analytics Consultant",
+                "Employer": "ZS",
+                "LinkedIn URL": "",
+                "Major": "Statistics",
+            },
+            {
+                "First Name": "Tomas",
+                "Last Name": "Engquist",
+                "Occupation": "Senior Associate Product Manager",
+                "Employer": "Capital One",
+                "LinkedIn URL": "",
+                "Major": "Economics",
+            },
+            {
+                "First Name": "Vague",
+                "Last Name": "Founder",
+                "Occupation": "Founder",
+                "Employer": "Bright Ventures",
+                "LinkedIn URL": "",
+                "Major": "English",
+            },
+            {
+                "First Name": "No",
+                "Last Name": "Signal",
+                "Occupation": "Director",
+                "Employer": "Local Bakery",
+                "LinkedIn URL": "",
+                "Major": "English",
+            },
+        ]
+    )
+    dataset_id = upload_dataframe(client, df, "broad-tech-buckets.csv")
+
+    data = ask(
+        client,
+        dataset_id,
+        "What alumni work in tech either as software engineers or other roles in a tech company?",
+    )
+
+    answer = assert_valid_answer(data)
+    result = data["result"]
+    assert result["total_matches"] == len(result["direct_rows"])
+    assert result["direct_count"] == len(result["direct_rows"])
+    assert result["adjacent_count"] == len(result["adjacent_rows"])
+    assert result["uncertain_count"] == len(result["uncertain_rows"])
+    assert result["total_considered"] <= len(df)
+    assert result["columns"] == ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]
+    assert result["display_columns"] == result["columns"]
+
+    direct_names = _full_names(result["direct_rows"])
+    adjacent_names = _full_names(result["adjacent_rows"])
+    uncertain_names = _full_names(result["uncertain_rows"])
+    assert {
+        "Amir Tavoli",
+        "James Gladstone",
+        "Ryan Skinner",
+        "Matthew Fleischauer",
+        "Kevin Vogt-Lowell",
+        "Ashok Arun",
+        "Victor Bogert",
+        "Paul Bader",
+        "Michael Bennett",
+        "Christopher Long",
+    }.issubset(direct_names)
+    assert {"Juan Gomez", "Tomas Engquist"}.issubset(adjacent_names)
+    assert "Vague Founder" in uncertain_names
+    assert "No Signal" not in direct_names | adjacent_names | uncertain_names
+    assert not (direct_names & adjacent_names)
+    assert not (direct_names & uncertain_names)
+    assert not (adjacent_names & uncertain_names)
+
+    sections = {section["category"]: section for section in result["row_sections"]}
+    assert set(sections) == {"direct", "adjacent", "uncertain"}
+    assert len(sections["direct"]["rows"]) == result["direct_count"]
+    assert len(sections["adjacent"]["rows"]) == result["adjacent_count"]
+    assert len(sections["uncertain"]["rows"]) == result["uncertain_count"]
+
+    table_titles = [block["title"] for block in table_blocks(answer)]
+    assert table_titles == ["Direct matches", "Adjacent tech-related matches", "Uncertain possible matches"]
+    rendered = " ".join(str(block) for block in answer["blocks"])
+    assert "Major" not in rendered
+    assert "match_reason" not in rendered
+    assert "classification" not in rendered.lower()
+    assert "linkedin.com/in/amir" in rendered
+    assert "Found 10 direct matches" in answer["summary"]
+
+
+def test_tech_company_and_software_engineer_queries_use_different_scope(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ava", "Ben", "Cy", "Dee"],
+            "Last Name": ["Open", "Bank", "Twilio", "Bakery"],
+            "Occupation": ["Strategic Finance", "Software Engineer", "Product Manager", "Software Engineer"],
+            "Employer": ["OpenAI", "Capital One", "Twilio", "Local Bakery"],
+            "LinkedIn URL": ["", "", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "tech-scope.csv")
+
+    tech_company = ask(client, dataset_id, "Which alumni work at tech companies?")["result"]
+    assert _full_names(tech_company["direct_rows"]) == {"Ava Open", "Cy Twilio"}
+    assert "Ben Bank" in _full_names(tech_company["adjacent_rows"])
+
+    software_only = ask(client, dataset_id, "Only show alumni who are software engineers, not product managers or business roles.")["result"]
+    software_names = _full_names(software_only["rows"])
+    assert software_names == {"Ben Bank", "Dee Bakery"}
+
+    finance_software = ask(client, dataset_id, "Which alumni work as software engineers in finance?")["result"]
+    assert _full_names(finance_software["direct_rows"]) == {"Ben Bank"}
+    assert "Cy Twilio" not in _full_names(finance_software.get("direct_rows") or [])
+    assert "Ava Open" not in _full_names(finance_software.get("direct_rows") or [])
+
+
 def test_model_clarification_for_alumni_tech_query_uses_default_people_filter(client, monkeypatch):
     class FakeResponses:
         def __init__(self):

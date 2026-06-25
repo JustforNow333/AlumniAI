@@ -141,6 +141,70 @@ def test_extract_normalized_response_prefers_operation_results():
     assert normalized["rows"][0]["Employer"] == "Spotify"
 
 
+def test_score_case_uses_bucketed_people_filter_expectations():
+    gold_df = pd.DataFrame(
+        {
+            "first_name": ["Amir", "Tomas", "Vague", "No"],
+            "last_name": ["Tavoli", "Engquist", "Founder", "Signal"],
+            "employer": ["OpenAI", "Capital One", "Bright Ventures", "Bakery"],
+            "title": ["Strategic Finance", "Product Manager", "Founder", "Director"],
+            "linkedin_url": ["linkedin.com/in/amir", "", "", ""],
+        }
+    )
+    response = {
+        "answer_text": "Found 1 direct match. Also showing 1 adjacent and 1 uncertain.",
+        "operation_results": [
+            {
+                "status": "ok",
+                "intent": "people_filter",
+                "entity": "alumni",
+                "visible_columns": ["First Name", "Last Name", "Employer", "Title", "LinkedIn URL"],
+                "columns": ["First Name", "Last Name", "Employer", "Title", "LinkedIn URL"],
+                "rows": [["Amir", "Tavoli", "OpenAI", "Strategic Finance", "linkedin.com/in/amir"]],
+                "direct_rows": [{"First Name": "Amir", "Last Name": "Tavoli", "Employer": "OpenAI", "Title": "Strategic Finance", "LinkedIn URL": "linkedin.com/in/amir"}],
+                "adjacent_rows": [{"First Name": "Tomas", "Last Name": "Engquist", "Employer": "Capital One", "Title": "Product Manager", "LinkedIn URL": ""}],
+                "uncertain_rows": [{"First Name": "Vague", "Last Name": "Founder", "Employer": "Bright Ventures", "Title": "Founder", "LinkedIn URL": ""}],
+                "row_sections": [
+                    {"category": "direct", "columns": ["First Name", "Last Name"], "rows": [["Amir", "Tavoli"]]},
+                    {"category": "adjacent", "columns": ["First Name", "Last Name"], "rows": [["Tomas", "Engquist"]]},
+                    {"category": "uncertain", "columns": ["First Name", "Last Name"], "rows": [["Vague", "Founder"]]},
+                ],
+                "metrics": {
+                    "total_matches": 1,
+                    "direct_count": 1,
+                    "adjacent_count": 1,
+                    "uncertain_count": 1,
+                    "query_scope": "industry",
+                },
+            }
+        ],
+    }
+    normalized = extract_normalized_response(response)
+    case = {
+        "id": "tech_buckets",
+        "question": "What alumni work in tech?",
+        "must_include_direct": ["Amir Tavoli"],
+        "must_include_surfaced": ["Tomas Engquist", "Vague Founder"],
+        "acceptable_categories": {
+            "Tomas Engquist": ["adjacent"],
+            "Vague Founder": ["uncertain"],
+        },
+        "must_not_include_anywhere": ["No Signal"],
+        "required_sections": ["direct", "adjacent", "uncertain"],
+        "required_columns_if_available": ["First Name", "Last Name", "Employer", "Title", "LinkedIn URL"],
+        "forbidden_columns_unless_asked": ["Major"],
+        "count_must_equal_direct_rows": True,
+        "expected_query_scope": "industry",
+        "score_precision_recall": False,
+    }
+
+    result = score_case(case, normalized, gold_df)
+
+    assert result["passed"] is True
+    assert normalized["sections"] == ["direct", "adjacent", "uncertain"]
+    assert normalized["bucket_rows"]["adjacent"][0]["First Name"] == "Tomas"
+
+
 def test_column_checks_use_display_aliases_and_forbidden_columns():
     displayed = ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL", "Match Reason"]
 

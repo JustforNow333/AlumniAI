@@ -166,11 +166,13 @@ def deterministic_answer_from_results(question, plan, operation_results, dataset
     blocks = []
     metric_items = []
     row_result = None
+    people_row_sections = []
     ranked_result = None
 
     for result in ok_results:
         metrics = result.get("metrics") or {}
-        if result.get("intent") == "people_filter" and result.get("entity") == "alumni":
+        is_people_filter = result.get("intent") == "people_filter" and result.get("entity") == "alumni"
+        if is_people_filter:
             metric_items.extend(_people_filter_metric_items(result, metrics))
         elif result.get("is_filtered") and "matched_row_count" in metrics:
             metric_items.extend(_filtered_metric_items(metrics))
@@ -179,7 +181,9 @@ def deterministic_answer_from_results(question, plan, operation_results, dataset
                 if key in {"total_rows", "rows_matched", "duplicate_row_count"}:
                     metric_items.append({"label": _labelize(key), "value": format_value(value)})
 
-        if result.get("rows") and result.get("columns") and row_result is None:
+        if is_people_filter and isinstance(result.get("row_sections"), list) and result["row_sections"]:
+            people_row_sections.extend(result["row_sections"])
+        elif result.get("rows") and result.get("columns") and row_result is None:
             row_result = result
 
         if result.get("rows") and result.get("columns") and ranked_result is None:
@@ -195,7 +199,20 @@ def deterministic_answer_from_results(question, plan, operation_results, dataset
                 deduped.append(item)
         blocks.append({"type": "metrics", "items": deduped[:MAX_METRICS]})
 
-    if row_result:
+    if people_row_sections:
+        for section in people_row_sections:
+            if not isinstance(section, dict) or not section.get("rows") or not section.get("columns"):
+                continue
+            blocks.append(
+                {
+                    "type": "table",
+                    "title": section.get("title") or "Alumni",
+                    "columns": section.get("columns") or [],
+                    "rows": section.get("rows") or [],
+                    "caption": section.get("caption") or "",
+                }
+            )
+    elif row_result:
         blocks.append(
             {
                 "type": "table",
@@ -315,10 +332,10 @@ def _people_filter_metric_items(result, metrics):
         items.append({"label": "Showing", "value": format_value(displayed_count)})
     uncertain_count = result.get("uncertain_count", metrics.get("uncertain_count"))
     if uncertain_count:
-        items.append({"label": "Uncertain not counted", "value": format_value(uncertain_count)})
+        items.append({"label": "Uncertain possible matches", "value": format_value(uncertain_count)})
     adjacent_count = result.get("adjacent_count", metrics.get("adjacent_count"))
     if adjacent_count:
-        items.append({"label": "Adjacent not counted", "value": format_value(adjacent_count)})
+        items.append({"label": "Adjacent tech-related matches", "value": format_value(adjacent_count)})
     adjacent_included = result.get("adjacent_included_count", metrics.get("adjacent_included_count"))
     if adjacent_included:
         items.append({"label": "Adjacent included", "value": format_value(adjacent_included)})

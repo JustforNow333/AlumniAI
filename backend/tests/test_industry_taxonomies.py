@@ -45,7 +45,7 @@ def test_all_initial_taxonomies_exist_and_are_structured():
 
 def test_tech_taxonomy_merges_known_companies_config():
     taxonomy = get_taxonomy("tech")
-    for company in ["Spotify", "Google", "FanAmp", "Cogni DAO", "Rune Technologies"]:
+    for company in ["Spotify", "Google", "FanAmp", "Cogni DAO", "Rune Technologies", "Twilio", "Workday", "InterSystems", "ICEYE"]:
         assert company in taxonomy["known_companies"]
 
 
@@ -201,6 +201,19 @@ def test_technical_roles_query_sets_technical_scope():
     spec = classify_people_question("Which alumni have technical roles?")
     assert spec["industry"] == "tech"
     assert spec["query_scope"] == "technical_role"
+
+
+def test_tech_company_query_sets_employer_first_scope():
+    spec = classify_people_question("Which alumni work at tech companies?")
+    assert spec["industry"] == "tech"
+    assert spec["query_scope"] == "tech_company"
+
+
+def test_software_engineers_in_finance_sets_intersection_scope():
+    spec = classify_people_question("Which alumni work as software engineers in finance?")
+    assert spec["industry"] == "tech"
+    assert spec["query_scope"] == "technical_role"
+    assert spec["required_industries"] == ["finance"]
 
 
 def test_marketing_growth_query_requests_growth_function():

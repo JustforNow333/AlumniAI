@@ -116,6 +116,12 @@ def extract_normalized_response(response_json: Any) -> dict[str, Any]:
     if table_source:
         displayed_columns = _extract_source_columns(table_source)
         rows = _rows_to_dicts(table_source.get("rows") or [], displayed_columns)
+    bucket_rows = _extract_bucket_rows(table_source or {}, displayed_columns)
+    if not bucket_rows["direct"] and rows:
+        bucket_rows["direct"] = list(rows)
+    surfaced_rows = []
+    for category in ("direct", "adjacent", "uncertain"):
+        surfaced_rows.extend(bucket_rows[category])
 
     metrics = _extract_metrics(raw, table_source or {}, answer)
     primary_count = _first_int(
@@ -137,6 +143,9 @@ def extract_normalized_response(response_json: Any) -> dict[str, Any]:
     return {
         "answer_text": answer_text,
         "rows": rows,
+        "bucket_rows": bucket_rows,
+        "surfaced_rows": surfaced_rows,
+        "sections": _extract_sections(table_source or {}),
         "displayed_columns": displayed_columns,
         "count": primary_count,
         "displayed_count": displayed_count,
@@ -195,6 +204,11 @@ def score_case(
     rows = extract_rows(normalized_response)
     returned_names = [get_full_name(row) for row in rows]
     returned_names = [name for name in returned_names if normalize_name(name)]
+    bucket_rows = normalized_response.get("bucket_rows") or {}
+    direct_rows = bucket_rows.get("direct") or rows
+    surfaced_rows = normalized_response.get("surfaced_rows") or direct_rows
+    direct_names = [get_full_name(row) for row in direct_rows]
+    surfaced_names = [get_full_name(row) for row in surfaced_rows]
     if not returned_names and normalized_response.get("lower_confidence_extraction"):
         returned_names = _extract_known_names_from_text(extract_answer_text(normalized_response), known_name_display)
 
@@ -314,6 +328,41 @@ def score_case(
             f"Forbidden displayed columns were present: {', '.join(present_forbidden)}.",
         )
 
+    forbidden_unless_asked = case.get("forbidden_columns_unless_asked") or []
+    if forbidden_unless_asked:
+        present_forbidden_unless_asked = check_forbidden_columns(
+            extract_displayed_columns(normalized_response),
+            forbidden_unless_asked,
+        )
+        if present_forbidden_unless_asked:
+            _add_failure(
+                failures,
+                failure_categories,
+                "forbidden_column",
+                "Columns forbidden unless asked were present: "
+                + ", ".join(present_forbidden_unless_asked)
+                + ".",
+            )
+
+    required_if_available = [
+        column
+        for column in case.get("required_columns_if_available") or []
+        if any(_columns_equivalent(existing, column) for existing in gold_df.columns)
+    ]
+    missing_required_if_available = check_required_columns(
+        extract_displayed_columns(normalized_response),
+        required_if_available,
+    )
+    if missing_required_if_available:
+        _add_failure(
+            failures,
+            failure_categories,
+            "presentation_failures",
+            "Missing available required displayed columns: "
+            + ", ".join(missing_required_if_available)
+            + ".",
+        )
+
     missing_phrases = check_required_phrases(
         extract_answer_text(normalized_response),
         case.get("required_phrases") or [],
@@ -351,6 +400,34 @@ def score_case(
             f"Required names were not returned: {', '.join(missing_includes)}.",
         )
 
+    missing_direct = [
+        name
+        for name in case.get("must_include_direct") or []
+        if normalize_name(name) not in set(_normalize_names(direct_names))
+    ]
+    if missing_direct:
+        categories_by_name = case.get("failure_categories_by_name") if isinstance(case.get("failure_categories_by_name"), dict) else {}
+        category = categories_by_name.get(missing_direct[0]) or "row_selection"
+        _add_failure(
+            failures,
+            failure_categories,
+            category,
+            f"Required direct names were not direct: {', '.join(missing_direct)}.",
+        )
+
+    missing_surfaced = [
+        name
+        for name in case.get("must_include_surfaced") or []
+        if normalize_name(name) not in set(_normalize_names(surfaced_names))
+    ]
+    if missing_surfaced:
+        _add_failure(
+            failures,
+            failure_categories,
+            "adjacent_not_displayed",
+            f"Required surfaced names were not returned in any bucket: {', '.join(missing_surfaced)}.",
+        )
+
     unexpected_names = [
         name
         for name in case.get("must_exclude_names") or []
@@ -364,6 +441,94 @@ def score_case(
             f"Excluded names were returned: {', '.join(unexpected_names)}.",
         )
 
+    unexpected_direct = [
+        name
+        for name in case.get("must_not_include_direct") or []
+        if normalize_name(name) in set(_normalize_names(direct_names))
+    ]
+    if unexpected_direct:
+        _add_failure(
+            failures,
+            failure_categories,
+            "wrong_bucket_for_strict_query",
+            f"Names that must not be direct were direct: {', '.join(unexpected_direct)}.",
+        )
+
+    unexpected_anywhere = [
+        name
+        for name in case.get("must_not_include_anywhere") or []
+        if normalize_name(name) in set(_normalize_names(surfaced_names))
+    ]
+    if unexpected_anywhere:
+        _add_failure(
+            failures,
+            failure_categories,
+            "row_selection",
+            f"Names that must not be surfaced were returned: {', '.join(unexpected_anywhere)}.",
+        )
+
+    acceptable_categories = case.get("acceptable_categories") if isinstance(case.get("acceptable_categories"), dict) else {}
+    for name, allowed in acceptable_categories.items():
+        observed = _category_for_name(name, bucket_rows)
+        allowed_values = {str(value) for value in (allowed or [])}
+        if observed and observed not in allowed_values:
+            _add_failure(
+                failures,
+                failure_categories,
+                "wrong_bucket_for_strict_query",
+                f"{name} was in bucket {observed}, expected one of {sorted(allowed_values)}.",
+            )
+        elif not observed:
+            _add_failure(
+                failures,
+                failure_categories,
+                "row_selection",
+                f"{name} was not present in any classified bucket.",
+            )
+
+    required_sections = {str(section) for section in case.get("required_sections") or []}
+    present_sections = set(normalized_response.get("sections") or [])
+    missing_sections = sorted(required_sections - present_sections)
+    if missing_sections:
+        _add_failure(
+            failures,
+            failure_categories,
+            "presentation_failures",
+            f"Missing required row sections: {', '.join(missing_sections)}.",
+        )
+
+    if case.get("count_must_equal_direct_rows"):
+        direct_count = _first_int(normalized_response.get("metrics") or {}, ["direct_count", "direct_match_count", "total_matches"])
+        if direct_count is None:
+            direct_count = app_count
+        if direct_count != len(direct_rows):
+            _add_failure(
+                failures,
+                failure_categories,
+                "count_payload_mismatch",
+                f"Direct count was {direct_count}, but direct_rows contained {len(direct_rows)} rows.",
+            )
+
+    if bucket_rows and any(bucket_rows.get(category) for category in ("direct", "adjacent", "uncertain")):
+        duplicate_bucket_names = _duplicate_bucket_names(bucket_rows)
+        if duplicate_bucket_names:
+            _add_failure(
+                failures,
+                failure_categories,
+                "count_payload_mismatch",
+                "Names appeared in more than one match bucket: " + ", ".join(duplicate_bucket_names[:10]) + ".",
+            )
+
+    if case.get("expected_query_scope"):
+        observed_scope = (normalized_response.get("metrics") or {}).get("query_scope")
+        if observed_scope != case.get("expected_query_scope"):
+            _add_failure(
+                failures,
+                failure_categories,
+                "query_intent_misread",
+                f"Expected query_scope={case.get('expected_query_scope')}, got {observed_scope}.",
+            )
+
     excluded_industries = {str(value).casefold() for value in case.get("must_exclude_industries") or []}
     excluded_industry_names = _returned_names_in_industries(rows, gold_df, excluded_industries)
     if excluded_industry_names:
@@ -376,7 +541,7 @@ def score_case(
             + ".",
         )
 
-    if expected_count == 0:
+    if "expected_count" in case and expected_count == 0:
         observed_count = app_count if app_count is not None else returned_count
         if observed_count != 0 or returned_count != 0:
             _add_failure(
@@ -625,6 +790,48 @@ def _rows_to_dicts(rows: list[Any], columns: list[str]) -> list[dict[str, Any]]:
     return normalized_rows
 
 
+def _extract_bucket_rows(source: dict[str, Any], displayed_columns: list[str]) -> dict[str, list[dict[str, Any]]]:
+    buckets = {"direct": [], "adjacent": [], "uncertain": []}
+    if not isinstance(source, dict):
+        return buckets
+
+    key_map = {
+        "direct": "direct_rows",
+        "adjacent": "adjacent_rows",
+        "uncertain": "uncertain_rows",
+    }
+    for category, key in key_map.items():
+        rows = source.get(key)
+        if isinstance(rows, list) and rows:
+            buckets[category] = _rows_to_dicts(rows, displayed_columns)
+
+    sections = source.get("row_sections")
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            category = str(section.get("category") or "").lower()
+            if category not in buckets or buckets[category]:
+                continue
+            columns = _extract_source_columns(section) or displayed_columns
+            buckets[category] = _rows_to_dicts(section.get("rows") or [], columns)
+    return buckets
+
+
+def _extract_sections(source: dict[str, Any]) -> list[str]:
+    sections = source.get("row_sections") if isinstance(source, dict) else None
+    if not isinstance(sections, list):
+        return []
+    names = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        category = str(section.get("category") or "").strip()
+        if category:
+            names.append(category)
+    return list(dict.fromkeys(names))
+
+
 def _extract_metrics(raw: dict[str, Any], table_source: dict[str, Any], answer: dict[str, Any]) -> dict[str, Any]:
     metrics: dict[str, Any] = {}
     for source in [table_source, raw.get("result") if isinstance(raw.get("result"), dict) else {}]:
@@ -634,12 +841,19 @@ def _extract_metrics(raw: dict[str, Any], table_source: dict[str, Any], answer: 
             metrics.update(source["metrics"])
         for key in (
             "total_matches",
+            "direct_count",
+            "direct_match_count",
+            "adjacent_count",
+            "uncertain_count",
             "displayed_count",
             "matched_row_count",
             "returned_row_count",
             "rows_matched",
             "rows_returned",
             "display_limit",
+            "total_considered",
+            "surfaced_count",
+            "query_scope",
         ):
             if key in source:
                 metrics[key] = source[key]
@@ -811,6 +1025,31 @@ def _display_names(names: set[str], display_map: dict[str, str]) -> list[str]:
 
 def _normalize_names(names: list[str] | set[str]) -> list[str]:
     return [normalize_name(name) for name in names if normalize_name(name)]
+
+
+def _category_for_name(name: str, bucket_rows: dict[str, list[dict[str, Any]]]) -> str:
+    target = normalize_name(name)
+    if not target:
+        return ""
+    for category in ("direct", "adjacent", "uncertain"):
+        for row in bucket_rows.get(category) or []:
+            if normalize_name(get_full_name(row)) == target:
+                return category
+    return ""
+
+
+def _duplicate_bucket_names(bucket_rows: dict[str, list[dict[str, Any]]]) -> list[str]:
+    seen = {}
+    duplicates = []
+    for category in ("direct", "adjacent", "uncertain"):
+        for row in bucket_rows.get(category) or []:
+            name = normalize_name(get_full_name(row))
+            if not name:
+                continue
+            if name in seen and seen[name] != category and name not in duplicates:
+                duplicates.append(name)
+            seen[name] = category
+    return duplicates
 
 
 def _extract_known_names_from_text(answer_text: str, known_name_display: dict[str, str]) -> list[str]:

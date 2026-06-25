@@ -146,10 +146,10 @@ function peopleMetricsBlock(result) {
     items.push({ label: "Showing", value: cleanText(result.displayed_count) });
   }
   if (result.uncertain_count) {
-    items.push({ label: "Uncertain not counted", value: cleanText(result.uncertain_count) });
+    items.push({ label: "Uncertain possible matches", value: cleanText(result.uncertain_count) });
   }
   if (result.adjacent_count) {
-    items.push({ label: "Adjacent not counted", value: cleanText(result.adjacent_count) });
+    items.push({ label: "Adjacent tech-related matches", value: cleanText(result.adjacent_count) });
   }
   if (result.adjacent_included_count) {
     items.push({ label: "Adjacent included", value: cleanText(result.adjacent_included_count) });

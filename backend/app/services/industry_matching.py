@@ -338,7 +338,24 @@ def _normalize(value):
 
 
 def _normalize_company(value):
-    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())
+    normalized = re.sub(r"\([^)]*\)", " ", str(value or "").lower())
+    normalized = re.sub(r"[/|]+", " ", normalized)
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    replacements = {
+        "capitol one": "capital one",
+        "chainanalysis": "chainalysis",
+        "mit lincoln labratory": "mit lincoln laboratory",
+        "lincoln labratory": "lincoln laboratory",
+        "northrop gruman": "northrop grumman",
+        "northrop grumman corp": "northrop grumman",
+        "indeed com": "indeed",
+        "teads tv": "teads tv",
+        "cogni dao": "cogni dao",
+        "rune technologies": "rune technologies",
+    }
+    normalized = " ".join(normalized.split())
+    for source, target in replacements.items():
+        normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized)
     suffixes = {"inc", "incorporated", "llc", "l l c", "ltd", "limited", "corp", "corporation", "co", "company"}
     words = [word for word in normalized.split() if word not in suffixes]
     return " ".join(words)

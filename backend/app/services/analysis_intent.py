@@ -569,6 +569,17 @@ def heuristic_intent(question, dataset_context):
     ):
         return people_filter_fallback_intent(question, people_spec)
 
+    if (
+        people_spec
+        and people_spec.get("filter_type") == "industry"
+        and people_spec.get("industry") == "tech"
+        and (
+            people_spec.get("query_scope") in {"tech_company", "technical_role"}
+            or people_spec.get("required_industries")
+        )
+    ):
+        return people_filter_fallback_intent(question, people_spec)
+
     if _is_tech_related_question(question_lower):
         if _is_alumni_tech_fallback_question(question_lower):
             return alumni_tech_fallback_intent(question)
@@ -884,6 +895,7 @@ def _plan_find_records(intent, resolved, assumptions):
         intent.get("intent") == "people_filter"
         or any(_is_tech_concept(concept.get("name")) for concept in intent.get("concepts") or [])
     )
+    inferred_people_spec = classify_people_question(intent.get("original_question") or intent.get("user_goal"))
     params = {
         "columns": all_columns,
         "terms": list(dict.fromkeys(all_terms)),
@@ -894,9 +906,21 @@ def _plan_find_records(intent, resolved, assumptions):
     }
     if people_filter_spec:
         params["filter_mode"] = "people"
-        params["people_filter"] = dict(people_filter_spec)
-    elif not strict_people_filter and (
-        inferred_spec := classify_people_question(intent.get("original_question") or intent.get("user_goal"))
+        params["people_filter"] = dict(inferred_people_spec or people_filter_spec)
+        if inferred_people_spec:
+            deterministic_display = _resolved_columns_for_requested(
+                intent,
+                resolved,
+                _display_semantics_for_question(str(intent.get("original_question") or intent.get("user_goal") or "").lower()),
+            )
+            if deterministic_display:
+                params["display_columns"] = deterministic_display
+    elif inferred_people_spec and (
+        not strict_people_filter
+        or inferred_people_spec.get("filter_type") != "industry"
+        or inferred_people_spec.get("industry") != "tech"
+        or inferred_people_spec.get("query_scope") in {"tech_company", "technical_role"}
+        or inferred_people_spec.get("required_industries")
     ):
         # The model produced a confident keyword search, but the question is a
         # people/industry query: keyword hits may only be candidates, so route
@@ -904,7 +928,14 @@ def _plan_find_records(intent, resolved, assumptions):
         # the *original* question, not the model's rephrased user_goal, so
         # finance/banking exclusion wording is not lost or distorted.
         params["filter_mode"] = "people"
-        params["people_filter"] = dict(inferred_spec)
+        params["people_filter"] = dict(inferred_people_spec)
+        deterministic_display = _resolved_columns_for_requested(
+            intent,
+            resolved,
+            _display_semantics_for_question(str(intent.get("original_question") or intent.get("user_goal") or "").lower()),
+        )
+        if deterministic_display:
+            params["display_columns"] = deterministic_display
     elif strict_people_filter:
         params["filter_mode"] = "tech_people"
         params["people_filter"] = {
@@ -1095,6 +1126,10 @@ def _return_columns_for_intent(intent, resolved, default):
 
 
 def _display_semantics_for_question(question_lower):
+    explicit = _explicit_display_semantics(question_lower)
+    if explicit:
+        return explicit
+
     semantics = ["first_name", "last_name", "occupation", "employer"]
     requested = {
         "major": ["major", "majors", "degree", "degrees", "field of study"],
@@ -1105,11 +1140,64 @@ def _display_semantics_for_question(question_lower):
         "state": ["state", "states", "province", "region"],
     }
     for semantic, terms in requested.items():
-        if _contains_word_or_phrase(question_lower, terms):
+        if _contains_word_or_phrase(question_lower, terms) and not _display_semantic_is_negated(question_lower, terms):
             insert_at = 1 if semantic == "grad_year" else len(semantics)
             semantics.insert(insert_at, semantic)
     semantics.append("linkedin_url")
     return list(dict.fromkeys(semantics))
+
+
+def _explicit_display_semantics(question_lower):
+    text = str(question_lower or "")
+    restricts_display = bool(
+        re.search(r"\bonly\s+include\b|\binclude\s+only\b|\bcolumns?\b|\bfields?\b", text)
+        or re.search(r"\bshow\b.+\bonly\b", text)
+    )
+    if not restricts_display:
+        return []
+
+    requested = []
+    if _contains_word_or_phrase(text, ["name", "names"]):
+        requested.extend(["first_name", "last_name"])
+    employer_terms = ["employer", "employers", "company", "companies"]
+    if _contains_word_or_phrase(text, employer_terms) and not _display_semantic_is_negated(text, employer_terms):
+        requested.append("employer")
+    occupation_terms = ["title", "titles", "occupation", "occupations", "role", "roles", "job", "jobs"]
+    if _contains_word_or_phrase(text, occupation_terms) and not _display_semantic_is_negated(text, occupation_terms):
+        requested.append("occupation")
+    linkedin_terms = ["linkedin", "linkedin url", "linkedin urls"]
+    if _contains_word_or_phrase(text, linkedin_terms) and not _display_semantic_is_negated(text, linkedin_terms):
+        requested.append("linkedin_url")
+    major_terms = ["major", "majors", "degree", "degrees", "field of study"]
+    if _contains_word_or_phrase(text, major_terms) and not _display_semantic_is_negated(text, major_terms):
+        requested.append("major")
+    grad_terms = ["graduation year", "graduation years", "class year", "class years", "grad year", "grad yr"]
+    if _contains_word_or_phrase(text, grad_terms) and not _display_semantic_is_negated(text, grad_terms):
+        requested.append("grad_year")
+    email_terms = ["email", "emails", "email address", "e-mail"]
+    if _contains_word_or_phrase(text, email_terms) and not _display_semantic_is_negated(text, email_terms):
+        requested.append("email")
+    phone_terms = ["phone", "phone number", "mobile"]
+    if _contains_word_or_phrase(text, phone_terms) and not _display_semantic_is_negated(text, phone_terms):
+        requested.append("phone")
+    city_terms = ["city", "cities", "location", "locations"]
+    if _contains_word_or_phrase(text, city_terms) and not _display_semantic_is_negated(text, city_terms):
+        requested.append("city")
+    state_terms = ["state", "states", "province", "region"]
+    if _contains_word_or_phrase(text, state_terms) and not _display_semantic_is_negated(text, state_terms):
+        requested.append("state")
+
+    if "only" in text and requested:
+        return list(dict.fromkeys(requested))
+    return []
+
+
+def _display_semantic_is_negated(text, terms):
+    for term in terms:
+        escaped = re.escape(str(term))
+        if re.search(rf"\b(?:do\s+not|don't|dont|not|without|exclude|excluding)\s+(?:include\s+)?(?:their\s+)?{escaped}\b", text):
+            return True
+    return False
 
 
 def alumni_tech_fallback_intent(question):
@@ -1139,7 +1227,7 @@ def alumni_tech_fallback_intent(question):
     ]
     intent["desired_output"] = {
         "format": "table",
-        "semantic_columns": ["first_name", "last_name", "occupation", "employer", "linkedin_url"],
+        "semantic_columns": _display_semantics_for_question(str(question or "").lower()),
         "limit": _extract_requested_count(str(question or "").lower(), 100),
     }
     intent["assumptions"] = [
@@ -1190,23 +1278,25 @@ def people_filter_fallback_intent(question, spec):
         industry = taxonomy.get("industry") or str(spec.get("industry") or "industry")
         title_terms = list(taxonomy.get("title_keywords") or [])
         employer_terms = _merge_lists(taxonomy.get("employer_keywords"), taxonomy.get("known_companies"))
+        title_concept = "software_engineer_role" if industry == "tech" and spec.get("query_scope") == "technical_role" else f"{industry}_titles"
+        employer_concept = "tech_company" if industry == "tech" else f"{industry}_employers"
         intent["concepts"] = [
             {
-                "name": f"{industry}_titles",
+                "name": title_concept,
                 "definition": f"Occupations that indicate {industry}.",
                 "search_terms": title_terms,
                 "known_entities": [],
             },
             {
-                "name": f"{industry}_employers",
+                "name": employer_concept,
                 "definition": f"Employers that indicate {industry}.",
                 "search_terms": list(taxonomy.get("employer_keywords") or []),
                 "known_entities": list(taxonomy.get("known_companies") or []),
             },
         ]
         intent["filters"] = [
-            {"concept": f"{industry}_titles", "apply_to_semantic_columns": ["occupation"], "match_mode": "contains_any"},
-            {"concept": f"{industry}_employers", "apply_to_semantic_columns": ["employer"], "match_mode": "contains_any"},
+            {"concept": title_concept, "apply_to_semantic_columns": ["occupation"], "match_mode": "contains_any"},
+            {"concept": employer_concept, "apply_to_semantic_columns": ["employer"], "match_mode": "contains_any"},
         ]
         intent["assumptions"] = [
             f"I used the {industry} taxonomy: explicit {industry} titles, known {industry} companies, and strong "
@@ -1215,7 +1305,7 @@ def people_filter_fallback_intent(question, spec):
 
     intent["desired_output"] = {
         "format": "table",
-        "semantic_columns": ["first_name", "last_name", "occupation", "employer", "linkedin_url"],
+        "semantic_columns": _display_semantics_for_question(str(question or "").lower()),
         "limit": _extract_requested_count(str(question or "").lower(), 100),
     }
     return intent

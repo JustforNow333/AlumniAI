@@ -115,9 +115,37 @@ def test_create_insight_persists_full_response_payload(client):
             "intent": "people_filter",
             "entity": "alumni",
             "total_matches": 2,
+            "direct_count": 2,
             "uncertain_count": 1,
             "adjacent_count": 4,
             "total_dataset_rows": 3,
+            "display_columns": ["First Name", "Occupation", "Employer"],
+            "direct_rows": [
+                {"First Name": "Person0", "Occupation": "Software Engineer", "Employer": "Acme"},
+                {"First Name": "Person1", "Occupation": "Software Engineer", "Employer": "Acme"},
+            ],
+            "adjacent_rows": [
+                {"First Name": "Person2", "Occupation": "Product Manager", "Employer": "Bank"}
+            ],
+            "row_sections": [
+                {
+                    "category": "direct",
+                    "title": "Direct matches",
+                    "columns": ["First Name", "Occupation", "Employer"],
+                    "rows": [
+                        {"First Name": "Person0", "Occupation": "Software Engineer", "Employer": "Acme"},
+                        {"First Name": "Person1", "Occupation": "Software Engineer", "Employer": "Acme"},
+                    ],
+                },
+                {
+                    "category": "adjacent",
+                    "title": "Adjacent tech-related matches",
+                    "columns": ["First Name", "Occupation", "Employer"],
+                    "rows": [
+                        {"First Name": "Person2", "Occupation": "Product Manager", "Employer": "Bank"}
+                    ],
+                },
+            ],
         },
         "metadata": {"searched_columns": ["Occupation", "Employer"]},
     }
@@ -126,6 +154,9 @@ def test_create_insight_persists_full_response_payload(client):
     assert created["response_payload"]["answer"]["blocks"][1]["columns"] == ["First Name", "Occupation", "Employer"]
     assert created["response_payload"]["answer"]["blocks"][1]["rows"][0][0] == "Person0"
     assert created["response_payload"]["result"]["total_matches"] == 2
+    assert created["response_payload"]["result"]["direct_count"] == 2
+    assert len(created["response_payload"]["result"]["direct_rows"]) == 2
+    assert created["response_payload"]["result"]["row_sections"][1]["title"] == "Adjacent tech-related matches"
 
     fetched = client.get(f"/api/insights/{created['insight_id']}").get_json()
     assert fetched["response_payload"] == created["response_payload"]

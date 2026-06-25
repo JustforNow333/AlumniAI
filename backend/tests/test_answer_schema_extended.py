@@ -267,14 +267,14 @@ def test_people_filter_metric_items_with_uncertain():
     result = {"total_matches": 10, "displayed_count": 10, "uncertain_count": 3}
     items = _people_filter_metric_items(result, {})
     labels = [i["label"] for i in items]
-    assert "Uncertain not counted" in labels
+    assert "Uncertain possible matches" in labels
 
 
 def test_people_filter_metric_items_with_adjacent():
     result = {"total_matches": 10, "displayed_count": 10, "adjacent_count": 2}
     items = _people_filter_metric_items(result, {})
     labels = [i["label"] for i in items]
-    assert "Adjacent not counted" in labels
+    assert "Adjacent tech-related matches" in labels
 
 
 def test_people_filter_metric_items_with_adjacent_included():
@@ -431,6 +431,43 @@ def test_deterministic_with_warnings_and_assumptions():
     answer = deterministic_answer_from_results("q", {}, results, {"columns": []})
     block_texts = " ".join(b.get("content", "") for b in answer.get("blocks", []))
     assert "Data is clean" in block_texts or "Some nulls" in block_texts
+
+
+def test_deterministic_people_filter_uses_row_sections():
+    results = [
+        {
+            "status": "ok",
+            "intent": "people_filter",
+            "entity": "alumni",
+            "summary": "Found 1 direct match and 1 adjacent match.",
+            "answer_label": "Alumni matching criteria",
+            "total_matches": 1,
+            "adjacent_count": 1,
+            "metrics": {"total_matches": 1, "adjacent_count": 1},
+            "columns": ["First Name", "Last Name", "Occupation", "Employer"],
+            "rows": [{"First Name": "Ada", "Last Name": "Lovelace", "Occupation": "Software Engineer", "Employer": "Bakery"}],
+            "row_sections": [
+                {
+                    "category": "direct",
+                    "title": "Direct matches",
+                    "columns": ["First Name", "Last Name", "Occupation", "Employer"],
+                    "rows": [{"First Name": "Ada", "Last Name": "Lovelace", "Occupation": "Software Engineer", "Employer": "Bakery"}],
+                },
+                {
+                    "category": "adjacent",
+                    "title": "Adjacent tech-related matches",
+                    "columns": ["First Name", "Last Name", "Occupation", "Employer"],
+                    "rows": [{"First Name": "Grace", "Last Name": "Hopper", "Occupation": "Product Manager", "Employer": "Bank"}],
+                },
+            ],
+        }
+    ]
+    answer = deterministic_answer_from_results("Show tech alumni", {}, results, {"columns": []})
+
+    tables = [block for block in answer["blocks"] if block["type"] == "table"]
+    assert [table["title"] for table in tables] == ["Direct matches", "Adjacent tech-related matches"]
+    labels = [item["label"] for block in answer["blocks"] if block["type"] == "metrics" for item in block["items"]]
+    assert "Adjacent tech-related matches" in labels
 
 
 # --- plain_markdown_answer ---

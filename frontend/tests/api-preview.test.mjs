@@ -401,7 +401,7 @@ test("ask sanitizes alumni people results for visible columns and total match me
   assert.deepEqual(plain(metrics.items), [
     { label: "Alumni matching criteria", value: "74" },
     { label: "Showing", value: "2" },
-    { label: "Uncertain not counted", value: "8" },
+    { label: "Uncertain possible matches", value: "8" },
   ]);
   assert.deepEqual(plain(table.columns), ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]);
   assert.deepEqual(plain(table.rows), [
@@ -429,6 +429,85 @@ test("frontend helpers resolve alumni columns and LinkedIn links", () => {
   assert.equal(Alumni._test.isDebugColumn("Match Reason"), true);
   assert.equal(Alumni._test.isDebugColumn("internal_reason"), true);
   assert.equal(Alumni._test.isDebugColumn("classification"), true);
+});
+
+test("ask keeps broad tech direct adjacent and uncertain sections cleanly", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        answer: {
+          title: "Tech alumni",
+          summary: "Found 2 direct matches out of 5 alumni. Also showing 1 adjacent tech-related matches and 1 uncertain possible matches for review.",
+          blocks: [
+            {
+              type: "metrics",
+              items: [
+                { label: "Alumni matching criteria", value: "2" },
+                { label: "Adjacent tech-related matches", value: "1" },
+                { label: "Uncertain possible matches", value: "1" },
+              ],
+            },
+            {
+              type: "table",
+              title: "Direct matches",
+              columns: ["First Name", "LastName", "Occupation", "Employer", "Major", "LinkedinURL", "classification"],
+              rows: [
+                ["Amir", "Tavoli", "Strategic Finance", "OpenAI", "Economics", "linkedin.com/in/amir", "direct_match"],
+                ["Ryan", "Skinner", "Product Manager", "Twilio", "Math", "", "direct_match"],
+              ],
+            },
+            {
+              type: "table",
+              title: "Adjacent tech-related matches",
+              columns: ["First Name", "LastName", "Occupation", "Employer", "LinkedinURL", "internal_reason"],
+              rows: [["Tomas", "Engquist", "Product Manager", "Capital One", "", "debug"]],
+            },
+            {
+              type: "table",
+              title: "Uncertain possible matches",
+              columns: ["First Name", "LastName", "Occupation", "Employer", "LinkedinURL"],
+              rows: [["Vague", "Founder", "Founder", "Bright Ventures", ""]],
+            },
+          ],
+          followups: [],
+        },
+        result: {
+          intent: "people_filter",
+          entity: "alumni",
+          answer_label: "Alumni matching criteria",
+          total_matches: 2,
+          direct_count: 2,
+          adjacent_count: 1,
+          uncertain_count: 1,
+          visible_columns: ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"],
+        },
+      }),
+    }),
+  });
+
+  const msg = await Alumni.ask({ dataset_id: "dataset-1" }, "What alumni work in tech?");
+  const metrics = msg.answer.blocks.find(block => block.type === "metrics");
+  const tables = msg.answer.blocks.filter(block => block.type === "table");
+  const rendered = JSON.stringify(msg.answer);
+
+  assert.deepEqual(plain(metrics.items), [
+    { label: "Alumni matching criteria", value: "2" },
+    { label: "Uncertain possible matches", value: "1" },
+    { label: "Adjacent tech-related matches", value: "1" },
+  ]);
+  assert.deepEqual(plain(tables.map(table => table.title)), [
+    "Direct matches",
+    "Adjacent tech-related matches",
+    "Uncertain possible matches",
+  ]);
+  assert.deepEqual(plain(tables[0].columns), ["First Name", "Last Name", "Occupation", "Employer", "LinkedIn URL"]);
+  assert.deepEqual(plain(tables[1].rows), [["Tomas", "Engquist", "Product Manager", "Capital One", ""]]);
+  assert.equal(rendered.includes("Major"), false);
+  assert.equal(rendered.includes("classification"), false);
+  assert.equal(rendered.includes("internal_reason"), false);
+  assert.equal(rendered.includes("linkedin.com/in/amir"), true);
 });
 
 test("ask adapts alumni tech query without showing an analysis-plan error", async () => {
@@ -591,7 +670,7 @@ test("ask renders non-tech industry people results generically with clean stats"
   assert.deepEqual(plain(metrics.items), [
     { label: "Alumni matching criteria", value: "12" },
     { label: "Showing", value: "2" },
-    { label: "Uncertain not counted", value: "3" },
+    { label: "Uncertain possible matches", value: "3" },
   ]);
   assert.equal(rendered.includes("Display limit"), false);
   assert.equal(rendered.includes("Total keyword hits"), false);

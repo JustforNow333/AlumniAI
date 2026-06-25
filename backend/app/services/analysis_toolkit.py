@@ -976,11 +976,14 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
     query_spec = people_classifier.query_spec_from_filter(filter_spec, default_industry=industry)
     classify_row = _people_row_classifier(filter_type, taxonomy, filter_spec, query_spec)
 
-    confirmed_rows = []
+    counted_rows_by_key = {}
+    direct_rows_by_key = {}
+    adjacent_rows_by_key = {}
+    uncertain_rows_by_key = {}
     debug_rows = []
-    seen_confirmed = set()
     uncertain_keys = set()
     adjacent_keys = set()
+    counted_adjacent_keys = set()
     non_match_candidate_count = 0
 
     for index, row in df.iterrows():
@@ -991,48 +994,139 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
         classification = match.get("classification") or (
             "direct_match" if match["status"] == "confirmed" else ("uncertain" if match["status"] == "uncertain" else "non_match")
         )
-        dedupe_key = _person_dedupe_key(df, row, index)
+        dedupe_key = _person_surface_key(df, row, index)
+        display_row = {
+            spec["header"]: _row_value_for_display(row, spec["source"])
+            for spec in display_specs
+        }
+        debug_row = {
+            "row_index": int(index) if isinstance(index, (int, np.integer)) else str(index),
+            "status": match["status"],
+            "match_category": match.get("match_category"),
+            "match_confidence": match.get("match_confidence"),
+            "role_signal": match.get("role_signal"),
+            "employer_signal": match.get("employer_signal"),
+            "match_reason_code": match.get("match_reason_code"),
+            "match_reason": match.get("internal_reason", ""),
+            "match_sources": match.get("match_sources") or [],
+            "classification": classification,
+            "confidence": match.get("confidence"),
+            "employer_industry": match.get("employer_industry") or [],
+            "job_function": match.get("job_function") or [],
+            "specialties": match.get("specialties") or [],
+        }
 
-        if match["status"] == "confirmed":
+        is_counted = (
+            bool(match.get("count_as_match"))
+            if "count_as_match" in match
+            else match["status"] == "confirmed"
+        )
+        if is_counted:
+            counted_rows_by_key.setdefault(dedupe_key, display_row)
+            debug_rows.append(debug_row)
             if classification == "adjacent":
+                counted_adjacent_keys.add(dedupe_key)
                 adjacent_keys.add(dedupe_key)
-            if dedupe_key in seen_confirmed:
-                continue
-            seen_confirmed.add(dedupe_key)
-            debug_rows.append(
-                {
-                    "row_index": int(index) if isinstance(index, (int, np.integer)) else str(index),
-                    "status": match["status"],
-                    "match_reason": match.get("internal_reason", ""),
-                    "match_sources": match.get("match_sources") or [],
-                    "classification": classification,
-                    "confidence": match.get("confidence"),
-                    "employer_industry": match.get("employer_industry") or [],
-                    "job_function": match.get("job_function") or [],
-                    "specialties": match.get("specialties") or [],
-                }
-            )
-            confirmed_rows.append(
-                {
-                    spec["header"]: _row_value_for_display(row, spec["source"])
-                    for spec in display_specs
-                }
-            )
+                if dedupe_key not in direct_rows_by_key:
+                    adjacent_rows_by_key.setdefault(dedupe_key, display_row)
+            else:
+                direct_rows_by_key[dedupe_key] = display_row
+                adjacent_rows_by_key.pop(dedupe_key, None)
+                uncertain_rows_by_key.pop(dedupe_key, None)
             continue
 
-        if classification == "adjacent" and dedupe_key not in seen_confirmed:
+        if classification == "adjacent" and dedupe_key not in counted_rows_by_key and dedupe_key not in direct_rows_by_key:
             adjacent_keys.add(dedupe_key)
-        elif match["status"] == "uncertain" and dedupe_key not in seen_confirmed:
+            adjacent_rows_by_key.setdefault(dedupe_key, display_row)
+            uncertain_rows_by_key.pop(dedupe_key, None)
+            debug_rows.append(debug_row)
+        elif (
+            match["status"] == "uncertain"
+            and dedupe_key not in counted_rows_by_key
+            and dedupe_key not in direct_rows_by_key
+            and dedupe_key not in adjacent_rows_by_key
+        ):
             uncertain_keys.add(dedupe_key)
+            uncertain_rows_by_key.setdefault(dedupe_key, display_row)
+            debug_rows.append(debug_row)
         elif index in candidate_indices:
             non_match_candidate_count += 1
 
-    total_matches = len(seen_confirmed)
+    total_matches = len(counted_rows_by_key)
+    confirmed_rows = list(counted_rows_by_key.values())
+    direct_rows = list(direct_rows_by_key.values())
+    adjacent_rows = [
+        row
+        for key, row in adjacent_rows_by_key.items()
+        if key not in counted_rows_by_key and key not in direct_rows_by_key
+    ]
+    uncertain_rows = [
+        row
+        for key, row in uncertain_rows_by_key.items()
+        if key not in counted_rows_by_key and key not in direct_rows_by_key and key not in adjacent_rows_by_key
+    ]
     scored_result_count = len(confirmed_rows)
     displayed_count = min(scored_result_count, limit)
-    uncertain_count = len(uncertain_keys - seen_confirmed)
-    adjacent_included_count = len(adjacent_keys & seen_confirmed)
-    adjacent_count = len(adjacent_keys - seen_confirmed)
+    adjacent_included_count = len(counted_adjacent_keys)
+    adjacent_count = len(adjacent_rows)
+    uncertain_count = len(uncertain_rows)
+    direct_count = len(direct_rows)
+    surface_non_direct = (
+        filter_type == "industry"
+        and industry == "tech"
+        and (query_spec.get("query_scope") or "industry") in {"industry", "tech_company", "technical_role"}
+    )
+    row_sections = []
+    section_search_caption = "Searched columns: " + ", ".join(str(column) for column in columns) + "." if columns else ""
+    if surface_non_direct:
+        row_sections.append(
+            {
+                "category": "direct",
+                "title": "Direct matches",
+                "columns": display_headers,
+                "rows": direct_rows,
+                "count": direct_count,
+                "caption": " ".join(
+                    item for item in [section_search_caption, "Counted as matching the user's criteria."] if item
+                ),
+            }
+        )
+        if adjacent_rows:
+            row_sections.append(
+                {
+                    "category": "adjacent",
+                    "title": "Adjacent tech-related matches",
+                    "columns": display_headers,
+                    "rows": adjacent_rows,
+                    "count": len(adjacent_rows),
+                    "caption": " ".join(
+                        item
+                        for item in [
+                            section_search_caption,
+                            "Surfaced for networking and discovery, but not counted as direct matches.",
+                        ]
+                        if item
+                    ),
+                }
+            )
+        if uncertain_rows:
+            row_sections.append(
+                {
+                    "category": "uncertain",
+                    "title": "Uncertain possible matches",
+                    "columns": display_headers,
+                    "rows": uncertain_rows,
+                    "count": len(uncertain_rows),
+                    "caption": " ".join(
+                        item
+                        for item in [
+                            section_search_caption,
+                            "Possibly relevant rows with weaker or incomplete tech evidence.",
+                        ]
+                        if item
+                    ),
+                }
+            )
 
     if displayed_count < total_matches:
         warnings.append(
@@ -1049,7 +1143,8 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
 
     classification_counts = {
         "raw_candidate_count": len(candidate_indices),
-        "direct_match_count": total_matches - adjacent_included_count,
+        "direct_count": direct_count,
+        "direct_match_count": direct_count,
         "adjacent_count": adjacent_count,
         "adjacent_not_counted_count": adjacent_count,
         "adjacent_included_count": adjacent_included_count,
@@ -1077,13 +1172,16 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
         "total_dataset_rows": int(df.shape[0]),
         "total_keyword_hits": raw_match_count,
         "total_matches": total_matches,
+        "direct_count": direct_count,
         "displayed_count": displayed_count,
         "display_limit": limit,
         "total_rows": int(df.shape[0]),
+        "total_considered": int(df.shape[0]),
         "raw_match_count": raw_match_count,
         "matched_row_count": total_matches,
         "returned_row_count": scored_result_count,
         "scored_result_count": scored_result_count,
+        "surfaced_count": direct_count + adjacent_count + uncertain_count,
         "deduplicated": True,
         "search_columns": columns,
         "display_columns": display_headers,
@@ -1109,10 +1207,17 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
         "total_dataset_rows": int(df.shape[0]),
         "total_keyword_hits": raw_match_count,
         "total_matches": total_matches,
+        "direct_count": direct_count,
         "displayed_count": displayed_count,
         "display_limit": limit,
+        "total_considered": int(df.shape[0]),
         "scored_result_count": scored_result_count,
         "final_display_count": displayed_count,
+        "surfaced_count": direct_count + adjacent_count + uncertain_count,
+        "direct_rows": direct_rows,
+        "adjacent_rows": adjacent_rows,
+        "uncertain_rows": uncertain_rows,
+        "row_sections": row_sections,
         "visible_columns": display_headers,
         "search_columns": columns,
         "display_columns": display_headers,
@@ -1124,6 +1229,12 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
     summary = f"{answer_label}: {total_matches}"
     if filter_type == "industry":
         summary = f"{answer_label}: {total_matches} direct matches out of {int(df.shape[0])} alumni"
+        if surface_non_direct and (adjacent_count or uncertain_count):
+            summary = (
+                f"Found {direct_count} direct matches out of {int(df.shape[0])} alumni. "
+                f"Also showing {adjacent_count} adjacent tech-related matches and "
+                f"{uncertain_count} uncertain possible matches for review."
+            )
         if adjacent_included_count:
             summary = (
                 f"{answer_label}: {total_matches} matches out of {int(df.shape[0])} alumni "
@@ -1217,6 +1328,11 @@ def _people_row_classifier(filter_type, taxonomy, filter_spec, query_spec=None):
             "status": status,
             "classification": outcome["classification"],
             "count_as_match": outcome["count_as_match"],
+            "match_category": outcome.get("match_category"),
+            "match_confidence": outcome.get("match_confidence"),
+            "role_signal": outcome.get("role_signal"),
+            "employer_signal": outcome.get("employer_signal"),
+            "match_reason_code": outcome.get("match_reason_code"),
             "match_sources": [outcome["classification"]],
             "confidence": outcome["confidence"],
             "internal_reason": outcome["internal_reason"],
@@ -1234,23 +1350,27 @@ def _people_display_column_specs(df, params):
     occupation = _resolved_display_column(df, "occupation")
     employer = _resolved_display_column(df, "employer")
     linkedin = _resolved_display_column(df, "linkedin_url")
+    requested = params.get("display_columns") or params.get("return_columns")
+    requested_columns, _warnings = _resolve_columns(df, requested, required=False)
+    restrict_to_requested = bool(requested_columns)
+
+    def wants(column):
+        return bool(column) and (not restrict_to_requested or column in requested_columns)
 
     specs = []
-    if first:
+    if wants(first):
         specs.append({"header": "First Name", "source": first})
-    if last:
+    if wants(last):
         specs.append({"header": "Last Name", "source": last})
     if not first and not last:
         fallback_name = _resolved_display_column(df, "person_name") or _resolved_display_column(df, "name")
-        if fallback_name:
+        if wants(fallback_name):
             specs.append({"header": str(fallback_name), "source": fallback_name})
-    if occupation:
+    if wants(occupation):
         specs.append({"header": "Occupation", "source": occupation})
-    if employer:
+    if wants(employer):
         specs.append({"header": "Employer", "source": employer})
 
-    requested = params.get("display_columns") or params.get("return_columns")
-    requested_columns, _warnings = _resolve_columns(df, requested, required=False)
     debug_sources = set(_debug_columns())
     existing_sources = {spec["source"] for spec in specs}
     linkedin_source = linkedin
@@ -1263,7 +1383,7 @@ def _people_display_column_specs(df, params):
         specs.append({"header": header, "source": column})
         existing_sources.add(column)
 
-    if linkedin:
+    if wants(linkedin):
         specs = [spec for spec in specs if spec["source"] != linkedin]
         specs.append({"header": "LinkedIn URL", "source": linkedin})
 
@@ -1416,6 +1536,18 @@ def _person_dedupe_key(df, row, index):
     if person_name:
         return ("person", _normalize_compact(person_name), str(index))
     return ("row", str(index))
+
+
+def _person_surface_key(df, row, index):
+    first = _safe_row_text(row, _resolved_display_column(df, "first_name"))
+    last = _safe_row_text(row, _resolved_display_column(df, "last_name"))
+    if first and last:
+        return ("name", _normalize_compact(first), _normalize_compact(last))
+
+    person_name = _safe_row_text(row, _resolved_display_column(df, "person_name"))
+    if person_name:
+        return ("person", _normalize_compact(person_name))
+    return _person_dedupe_key(df, row, index)
 
 
 def _safe_row_text(row, column):

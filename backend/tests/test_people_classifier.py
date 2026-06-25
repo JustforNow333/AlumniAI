@@ -22,6 +22,8 @@ CONSULTING_OR_STRATEGY = {"industries": ["consulting"], "include_functions": ["i
 CONSULTING_WITH_ADJACENT = {"industries": ["consulting"], "include_adjacent": True}
 TECH = {"industries": ["tech"], "query_scope": "industry"}
 TECHNICAL_ROLE = {"industries": ["tech"], "query_scope": "technical_role"}
+TECH_COMPANY = {"industries": ["tech"], "query_scope": "tech_company"}
+TECHNICAL_ROLE_IN_FINANCE = {"industries": ["tech"], "query_scope": "technical_role", "required_industries": ["finance"]}
 INVESTMENT_BANKING = {"industries": ["investment_banking"], "query_scope": "subindustry"}
 FINANCE_NOT_BANKING = {"industries": ["finance"], "excluded_industries": ["banking", "investment_banking"]}
 FINANCE_OUTSIDE_IB = {"industries": ["finance"], "excluded_industries": ["investment_banking"]}
@@ -230,10 +232,12 @@ def test_tech_known_employer_and_technical_role_scope():
     assert classify_candidate("Software Engineer", "Local Bakery", TECH)["count_as_match"] is True
 
     marketing_at_tech = classify_candidate("Marketing Manager", "Google", TECH)
-    assert marketing_at_tech["count_as_match"] is False
+    assert marketing_at_tech["classification"] == "direct_match"
+    assert marketing_at_tech["count_as_match"] is True
+    assert marketing_at_tech["match_reason_code"] == "business_role_at_tech_company"
 
     nontechnical = classify_candidate("Head of Growth", "Spotify", TECHNICAL_ROLE)
-    assert nontechnical["classification"] == "non_match"
+    assert nontechnical["classification"] == "adjacent"
     assert nontechnical["count_as_match"] is False
 
 
@@ -241,6 +245,88 @@ def test_tech_weak_product_or_analytics_titles_do_not_count_without_context():
     for title in ["Product Manager", "Analytics Manager", "Head of Growth"]:
         result = classify_candidate(title, "Local Bakery", TECH)
         assert result["count_as_match"] is False
+
+
+@pytest.mark.parametrize(
+    ("occupation", "employer", "reason_code"),
+    [
+        ("Software Engineer", "Capital One", "technical_role_in_finance"),
+        ("Product Manager", "Twilio", "product_role_at_tech_company"),
+        ("Strategic Finance", "OpenAI", "business_role_at_tech_company"),
+        ("Global Product Lead", "Google", "product_role_at_tech_company"),
+        ("Director, Professional Services", "InterSystems", "business_role_at_tech_company"),
+        ("AI Research Engineer", "MIT Lincoln Laboratory", "role_is_technical"),
+        ("Founding Engineer", "Morph Systems", "role_is_technical"),
+        ("Manager, Database Management Systems", "IQVIA", "role_is_technical"),
+        ("Enterprise Sales", "Salesforce", "business_role_at_tech_company"),
+        ("Managing Counsel", "HubSpot", "business_role_at_tech_company"),
+    ],
+)
+def test_broad_tech_direct_examples(occupation, employer, reason_code):
+    result = classify_candidate(occupation, employer, TECH)
+    assert result["classification"] == "direct_match", result["internal_reason"]
+    assert result["count_as_match"] is True
+    assert result["match_category"] == "direct"
+    assert result["match_reason_code"] == reason_code
+
+
+@pytest.mark.parametrize(
+    ("occupation", "employer", "reason_code"),
+    [
+        ("Product Manager", "Morgan Stanley", "product_at_nontech_or_ambiguous_employer"),
+        ("Decision Analytics Consultant", "ZS", "analytics_adjacent"),
+        ("Growth Analytics Manager", "Premise Health", "analytics_adjacent"),
+        ("Client Insights & Sales Analytics", "Grayscale Investments", "analytics_adjacent"),
+        ("Commercial Project Management", "Bosch", "tech_adjacent"),
+    ],
+)
+def test_broad_tech_adjacent_examples(occupation, employer, reason_code):
+    result = classify_candidate(occupation, employer, TECH)
+    assert result["classification"] == "adjacent", result["internal_reason"]
+    assert result["count_as_match"] is False
+    assert result["match_category"] == "adjacent"
+    assert result["match_reason_code"] == reason_code
+
+
+@pytest.mark.parametrize(
+    ("occupation", "employer"),
+    [
+        ("Director", "Unknown Company"),
+        ("Consultant", "Unknown Services"),
+        ("Strategy Associate", "Morgan Stanley"),
+    ],
+)
+def test_weak_business_rows_are_not_broad_tech_matches(occupation, employer):
+    result = classify_candidate(occupation, employer, TECH)
+    assert result["classification"] in {"non_match", "uncertain", "adjacent"}
+    assert result["count_as_match"] is False
+
+
+def test_tech_query_scope_changes_classification_for_same_row():
+    product_at_twilio = classify_candidate("Product Manager", "Twilio", TECH)
+    assert product_at_twilio["count_as_match"] is True
+
+    product_at_twilio_company = classify_candidate("Product Manager", "Twilio", TECH_COMPANY)
+    assert product_at_twilio_company["count_as_match"] is True
+
+    product_at_twilio_strict = classify_candidate("Product Manager", "Twilio", TECHNICAL_ROLE)
+    assert product_at_twilio_strict["classification"] == "adjacent"
+    assert product_at_twilio_strict["count_as_match"] is False
+
+    finance_software = classify_candidate("Software Engineer", "Capital One", TECH)
+    assert finance_software["count_as_match"] is True
+
+    finance_software_company = classify_candidate("Software Engineer", "Capital One", TECH_COMPANY)
+    assert finance_software_company["classification"] == "adjacent"
+    assert finance_software_company["count_as_match"] is False
+
+    finance_software_overlap = classify_candidate("Software Engineer", "Capital One", TECHNICAL_ROLE_IN_FINANCE)
+    assert finance_software_overlap["classification"] == "direct_match"
+    assert finance_software_overlap["count_as_match"] is True
+
+    strategic_finance = classify_candidate("Strategic Finance", "OpenAI", TECHNICAL_ROLE)
+    assert strategic_finance["classification"] == "adjacent"
+    assert strategic_finance["count_as_match"] is False
 
 
 def test_investment_banking_requires_title_or_context_not_employer_only():
@@ -304,7 +390,20 @@ def test_adjacent_and_uncertain_are_not_counted_by_default():
 def test_result_shape_matches_structured_output_contract():
     result = classify_candidate("Management Consultant", "KPMG", CONSULTING, row_id=7)
     assert result["row_id"] == 7
-    for key in ["classification", "count_as_match", "confidence", "employer_industry", "job_function", "specialties", "internal_reason"]:
+    for key in [
+        "classification",
+        "count_as_match",
+        "confidence",
+        "match_category",
+        "match_confidence",
+        "role_signal",
+        "employer_signal",
+        "match_reason_code",
+        "employer_industry",
+        "job_function",
+        "specialties",
+        "internal_reason",
+    ]:
         assert key in result
     assert isinstance(result["employer_industry"], list)
     assert isinstance(result["job_function"], list)

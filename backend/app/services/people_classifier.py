@@ -143,14 +143,29 @@ JOB_FUNCTION_KEYWORDS = {
     "legal": ["attorney", "lawyer", "counsel", "law clerk", "paralegal", "judicial", "legal"],
     "engineering": [
         "software engineer",
+        "software engineering",
         "engineer",
+        "founding engineer",
+        "forward deployed engineer",
+        "research engineer",
         "developer",
         "programmer",
         "devops",
         "site reliability",
+        "infrastructure",
+        "technical lead",
         "cto",
     ],
-    "data_analytics": ["data scientist", "data analyst", "data engineer", "analytics", "data science"],
+    "data_analytics": [
+        "data scientist",
+        "data analyst",
+        "data engineer",
+        "database",
+        "database management systems",
+        "analytics",
+        "analytics engineering",
+        "data science",
+    ],
     "sales_business_development": ["sales", "business development", "account executive", "partnerships"],
     "marketing": [
         "marketing manager",
@@ -276,13 +291,26 @@ INDUSTRY_RELATED_SPECIALTIES = {
 
 TECHNICAL_TITLE_PHRASES = [
     "software engineer",
+    "software engineering",
+    "swe",
     "software developer",
+    "cloud software engineer",
+    "staff software engineer",
+    "senior software engineer",
     "backend engineer",
     "front end engineer",
     "frontend engineer",
     "full stack engineer",
+    "founding engineer",
+    "founder software engineer",
+    "forward deployed engineer",
+    "research engineer",
+    "ai research engineer",
     "data scientist",
     "data engineer",
+    "database engineer",
+    "database administrator",
+    "database management systems",
     "machine learning engineer",
     "ml engineer",
     "ai engineer",
@@ -294,25 +322,74 @@ TECHNICAL_TITLE_PHRASES = [
     "devops engineer",
     "systems engineer",
     "solutions engineer",
+    "client solutions engineer",
     "blockchain engineer",
     "ux engineer",
     "technical program manager",
     "technical product manager",
+    "technical lead",
+    "technical services",
     "it director",
     "cto",
     "chief technology officer",
     "data platform analyst",
+    "analytics engineer",
+    "analytics engineering",
+    "infrastructure engineer",
+    "product engineer",
+    "security analyst",
+    "quantitative developer",
     "seo product analyst",
 ]
 
 WEAK_TECH_TITLE_PHRASES = [
     "product manager",
+    "product management",
+    "product lead",
+    "product owner",
+    "product strategy",
     "analytics manager",
+    "decision analytics",
+    "growth analytics",
+    "sales analytics",
+    "client insights",
+    "business systems analyst",
+    "systems analyst",
+    "revops",
+    "revenue operations",
+    "customer success",
+    "customer operations",
+    "professional services",
+    "implementation",
+    "technology consultant",
+    "technical consultant",
+    "project management",
     "head of growth",
     "growth",
     "digital",
     "platform",
     "product",
+]
+
+STRONG_TECH_EMPLOYER_KEYWORDS = [
+    "technologies",
+    "technology",
+    "software",
+    "ai",
+    "artificial intelligence",
+    "cloud",
+    "cybersecurity",
+    "fintech",
+    "blockchain",
+    "crypto",
+    "saas",
+    "semiconductor",
+    "satellite",
+    "space technology",
+    "data platform",
+    "developer tools",
+    "analytics",
+    "analytics platform",
 ]
 
 INVESTMENT_BANKING_TITLE_PHRASES = [
@@ -553,6 +630,7 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
 
     industries = [item for item in query_spec.get("industries") or [] if item]
     classification, confidence, reason = NON_MATCH, 0.0, "No target industry was specified for this query."
+    selected_industry = ""
 
     for industry in industries:
         outcome = _classify_for_industry(
@@ -560,6 +638,7 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
         )
         if _RANK[outcome[0]] > _RANK[classification] or (outcome[0] == classification and outcome[1] > confidence):
             classification, confidence, reason = outcome
+            selected_industry = industry
 
     # Union with explicitly requested job functions ("consulting or strategy"):
     # the query, not just the row, decides what counts.
@@ -614,6 +693,11 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
         "classification": classification,
         "count_as_match": bool(count_as_match),
         "confidence": round(float(confidence), 2),
+        "match_category": _match_category(classification),
+        "match_confidence": _confidence_bucket(confidence),
+        "role_signal": _role_signal(occupation_text),
+        "employer_signal": _employer_signal(employer_text, profile),
+        "match_reason_code": _match_reason_code(classification, selected_industry, occupation_text, employer_text, profile),
         "employer_industry": list(profile["employer_industry"]),
         "job_function": list(profile["job_function"]),
         "specialties": list(profile["specialties"]),
@@ -622,6 +706,113 @@ def classify_candidate(occupation, employer, query_spec, descriptor_text="", mod
     if row_id is not None:
         result["row_id"] = row_id
     return result
+
+
+def _match_category(classification):
+    return {
+        DIRECT_MATCH: "direct",
+        ADJACENT: "adjacent",
+        UNCERTAIN: "uncertain",
+        NON_MATCH: "excluded",
+    }.get(classification, "excluded")
+
+
+def _confidence_bucket(confidence):
+    try:
+        value = float(confidence)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value >= 0.85:
+        return "high"
+    if value >= 0.6:
+        return "medium"
+    return "low"
+
+
+def _role_signal(occupation):
+    if not occupation:
+        return "unknown"
+    if matched_term(occupation, TECHNICAL_TITLE_PHRASES):
+        return "technical"
+    if matched_term(occupation, ["product manager", "product management", "product lead", "product owner", "product strategy"]):
+        return "product"
+    if matched_term(occupation, ["analytics", "data analyst", "decision analytics", "growth analytics", "sales analytics"]):
+        return "analytics"
+    if matched_term(
+        occupation,
+        [
+            "finance",
+            "sales",
+            "customer success",
+            "business development",
+            "account manager",
+            "account executive",
+            "strategy",
+            "growth",
+            "marketing",
+            "operations",
+            "legal",
+            "counsel",
+            "professional services",
+        ],
+    ):
+        return "business"
+    if matched_term(occupation, ["teacher", "physician", "doctor", "attorney", "law clerk"]):
+        return "nontechnical"
+    return "unknown"
+
+
+def _employer_signal(employer, profile):
+    if not employer:
+        return "unknown"
+    industries = set(profile.get("employer_industry") or [])
+    if "technology" in industries:
+        return "tech_company"
+    if "financial_services" in industries:
+        return "finance"
+    if "consulting_professional_services" in industries:
+        return "consulting"
+    if "healthcare" in industries:
+        return "healthcare"
+    if "education" in industries:
+        return "education"
+    if matched_term(employer, ["laboratory", "lab", "research"]):
+        return "research"
+    taxonomy = get_taxonomy("tech") or {}
+    if matched_term(employer, taxonomy.get("ambiguous_keywords") or []):
+        return "ambiguous"
+    return "unknown"
+
+
+def _match_reason_code(classification, industry, occupation, employer, profile):
+    if classification == DIRECT_MATCH:
+        if matched_term(occupation, TECHNICAL_TITLE_PHRASES):
+            if "financial_services" in profile.get("employer_industry", []):
+                return "technical_role_in_finance"
+            return "role_is_technical"
+        if _taxonomy_key(industry) == "tech":
+            taxonomy = get_taxonomy("tech") or {}
+            if known_company_match(employer, taxonomy.get("known_companies") or []):
+                role = _role_signal(occupation)
+                if role == "product":
+                    return "product_role_at_tech_company"
+                if role == "business":
+                    return "business_role_at_tech_company"
+                return "employer_is_known_tech"
+            if matched_term(employer, STRONG_TECH_EMPLOYER_KEYWORDS):
+                return "employer_has_strong_tech_keyword"
+        return "direct_match"
+    if classification == ADJACENT:
+        if _role_signal(occupation) == "product":
+            return "product_at_nontech_or_ambiguous_employer"
+        if _role_signal(occupation) == "analytics":
+            return "analytics_adjacent"
+        if _employer_signal(employer, profile) == "ambiguous":
+            return "ambiguous_tech_company"
+        return "tech_adjacent"
+    if classification == UNCERTAIN:
+        return "uncertain_signal"
+    return "excluded_no_meaningful_signal"
 
 
 def _classify_for_industry(industry, occupation, employer, profile, descriptor_text, model_classifier, query_spec=None):
@@ -658,56 +849,66 @@ def _classify_with_taxonomy(industry, occupation, employer, descriptor_text, mod
 def _classify_for_tech(occupation, employer, profile, query_spec=None):
     query_spec = query_spec or {}
     taxonomy = get_taxonomy("tech") or {}
+    scope = query_spec.get("query_scope") or "industry"
     technical = matched_term(occupation, TECHNICAL_TITLE_PHRASES)
-    if technical:
-        if matched_term(occupation, ["clinical data analyst"]):
-            return NON_MATCH, 0.85, "Clinical data title is treated as healthcare context, not tech industry."
-        if matched_term(employer, ["aqr capital", "blackrock", "bank", "capital management", "investment"]):
-            return NON_MATCH, 0.8, "Data title at a finance employer is not treated as tech industry."
-        return DIRECT_MATCH, 0.98, f"Explicit technical title ('{technical}')."
-
-    if "consulting_professional_services" in profile["employer_industry"]:
-        return NON_MATCH, 0.9, "Professional-services/consulting employer without a technical title is not a tech-industry match."
-    if matched_term(occupation, ["marketplace operations"]):
-        return NON_MATCH, 0.85, "Marketplace operations is tracked as operations unless the title is explicitly technical."
-
     known = known_company_match(employer, taxonomy.get("known_companies") or [])
-    strong = matched_term(
-        employer,
-        [
-            "technologies",
-            "technology",
-            "software",
-            "ai",
-            "cloud",
-            "cybersecurity",
-            "fintech",
-            "blockchain",
-            "crypto",
-            "saas",
-        ],
+    strong = matched_term(employer, STRONG_TECH_EMPLOYER_KEYWORDS)
+    weak = matched_term(occupation, WEAK_TECH_TITLE_PHRASES)
+    ambiguous = matched_term(employer, taxonomy.get("ambiguous_keywords") or [])
+    exclusion = matched_term(" ".join([occupation, employer]), taxonomy.get("exclusion_keywords") or [])
+    consulting_unit_employer = "consulting_professional_services" in profile.get("employer_industry", []) and matched_term(
+        employer, ["consulting", "advisory", "professional services"]
     )
-    if query_spec.get("query_scope") == "technical_role":
+
+    if scope == "technical_role":
+        if technical:
+            return DIRECT_MATCH, 0.98, f"Explicit technical title ('{technical}')."
         if known or strong:
             return (
-                NON_MATCH,
-                0.85,
-                "Employer indicates the tech industry, but the query asks for technical roles and the title is not technical.",
+                ADJACENT,
+                0.58,
+                "Employer indicates the tech industry, but the query asks for software/technical roles and the title is not technical.",
             )
+        if weak:
+            return ADJACENT, 0.5, f"Title has tech-adjacent wording ('{weak}') but no explicit technical implementation role."
+        if ambiguous:
+            return UNCERTAIN, 0.45, f"Employer has ambiguous wording for tech ('{ambiguous}') without enough confirming context."
         return NON_MATCH, 0.2, "No explicit technical title was found."
 
+    if scope == "tech_company":
+        if consulting_unit_employer:
+            return ADJACENT, 0.58, "Employer is a consulting/professional-services unit, not clearly a core tech-company role."
+        if known:
+            return DIRECT_MATCH, 0.95, f"Employer is a known technology company: {known}."
+        if strong and not exclusion:
+            return DIRECT_MATCH, 0.88, f"Employer has a strong technology-industry signal ('{strong}')."
+        if technical:
+            return ADJACENT, 0.62, f"Technical title ('{technical}') at an employer not classified as a tech company."
+        if weak:
+            return ADJACENT, 0.52, f"Title has tech-adjacent wording ('{weak}') but employer is not clearly a tech company."
+        if ambiguous:
+            return UNCERTAIN, 0.45, f"Employer has ambiguous wording for tech ('{ambiguous}') without enough confirming context."
+        return NON_MATCH, 0.2, "No technology-company employer signal was found."
+
+    if technical:
+        if matched_term(occupation, ["clinical data analyst"]):
+            return ADJACENT, 0.58, "Clinical data title has data signal but the healthcare context is not a direct tech match."
+        return DIRECT_MATCH, 0.98, f"Explicit technical title ('{technical}')."
+
+    if matched_term(occupation, ["marketplace operations"]):
+        return ADJACENT, 0.52, "Marketplace operations is tech-adjacent but not a direct technical role or tech employer match."
+
+    if consulting_unit_employer:
+        return ADJACENT, 0.58, "Employer is a consulting/professional-services unit, not clearly a core tech-company role."
+
     if known:
-        if matched_term(occupation, ["marketing", "ads account strategist", "account strategist", "artist marketing"]):
-            return NON_MATCH, 0.85, "Known tech employer with an explicitly marketing/advertising title."
         return DIRECT_MATCH, 0.95, f"Employer is a known technology company: {known}."
-    if strong:
+    if strong and not exclusion:
         return DIRECT_MATCH, 0.88, f"Employer has a strong technology-industry signal ('{strong}')."
 
-    weak = matched_term(occupation, WEAK_TECH_TITLE_PHRASES)
     if weak:
         return ADJACENT, 0.55, f"Title has tech-adjacent wording ('{weak}') but no technical title or tech employer."
 
-    ambiguous = matched_term(employer, taxonomy.get("ambiguous_keywords") or [])
     if ambiguous:
         return UNCERTAIN, 0.45, f"Employer has ambiguous wording for tech ('{ambiguous}') without enough confirming context."
 

@@ -519,6 +519,11 @@ TAXONOMIES = {
             "State Street",
             "Charles Schwab",
             "Bloomberg",
+            "Capital One",
+            "Capitol One",
+            "American Express",
+            "Balyasny",
+            "Balyasny Asset Management",
             "Goldman Sachs",
             "Morgan Stanley",
             "JPMorgan",
@@ -1383,6 +1388,16 @@ def classify_people_question(question):
     if re.search(r"\bstartups?\b", normalized):
         return _industry_spec("startups")
 
+    if _software_engineering_finance_question(normalized):
+        return _industry_spec(
+            "tech",
+            required_industries=["finance"],
+            query_scope="technical_role",
+        )
+
+    if _broad_tech_role_or_company_question(normalized):
+        return _industry_spec("tech", query_scope="industry")
+
     occupation_terms = _occupation_terms_for_question(normalized)
     if occupation_terms:
         return _occupation_spec(occupation_terms)
@@ -1507,9 +1522,47 @@ def _finance_exclusion_question(normalized):
     )
 
 
+def _software_engineering_finance_question(normalized):
+    has_software_role = re.search(
+        r"\b(?:software\s+engineers?|software\s+developers?|swe|developers?|code professionally|coding professionally)\b",
+        normalized,
+    )
+    has_finance_context = re.search(
+        r"\b(?:finance|financial services|banks?|banking|hedge funds?|investment firms?|capital|asset management|fintech)\b",
+        normalized,
+    )
+    return bool(has_software_role and has_finance_context)
+
+
+def _broad_tech_role_or_company_question(normalized):
+    has_tech_context = _term_matches(normalized, "tech") or _term_matches(normalized, "technology")
+    has_software_role = re.search(r"\b(?:software\s+engineers?|software\s+engineering|software\s+developers?|swe)\b", normalized)
+    has_company_context = re.search(r"\b(?:tech|technology)\s+compan(?:y|ies)\b|\bat\s+tech\s+compan(?:y|ies)\b", normalized)
+    has_disjunction = re.search(r"\b(?:or|either)\b", normalized)
+    return bool(has_tech_context and has_software_role and has_company_context and has_disjunction)
+
+
 def _query_scope_for_question(industry, normalized):
-    if industry == "tech" and re.search(r"\btechnical\s+roles?\b|\btechnical\s+jobs?\b", normalized):
+    if (
+        industry == "tech"
+        and re.search(
+            r"\b(?:tech|technology|software|ai|artificial\s+intelligence)(?:\s+or\s+(?:tech|technology|software|ai|artificial\s+intelligence))*\s+compan(?:y|ies)\b",
+            normalized,
+        )
+        and not re.search(r"\b(?:software\s+engineer|software\s+engineering|software\s+developer|technical\s+role|technical\s+job)\b", normalized)
+    ):
+        return "tech_company"
+    if industry == "tech" and re.search(
+        r"\b(?:software\s+engineers?|software\s+developers?|swe|code professionally|coding professionally|technical\s+roles?|technical\s+jobs?)\b",
+        normalized,
+    ) and not re.search(r"\b(?:tech|technology)\s+compan(?:y|ies)\b", normalized):
         return "technical_role"
+    if (
+        industry == "tech"
+        and re.search(r"\b(?:work(?:s|ing)?\s+)?(?:at|for)\s+(?:tech|technology)\s+compan(?:y|ies)\b", normalized)
+        and not re.search(r"\b(?:software\s+engineer|software\s+engineering|software\s+developer|technical\s+role|technical\s+job)\b", normalized)
+    ):
+        return "tech_company"
     if industry == "investment_banking":
         return "subindustry"
     if _excluded_industries_for_question(industry, normalized):
