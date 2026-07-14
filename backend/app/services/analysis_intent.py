@@ -6,9 +6,13 @@ import re
 
 from app.services import ai_service
 from app.services.analysis_executor import MAX_OPERATIONS
-from app.services.industry_taxonomies import classify_people_question, get_taxonomy
+from app.services.industry_taxonomies import classify_people_question, get_taxonomy, industry_for_question
 from app.utils.ai_helpers import extract_response_text, parse_json_response
-from app.utils.text_utils import clamp_limit, contains_word_or_phrase, normalize_text
+from app.utils.text_utils import (
+    clamp_limit as _limit,
+    contains_word_or_phrase as _contains_word_or_phrase,
+    normalize_text as _normalize,
+)
 
 
 INTENTS = {
@@ -25,13 +29,6 @@ TARGET_ENTITIES = {"rows", "columns", "groups", "dataset"}
 OUTPUT_FORMATS = {"table", "metrics", "ranked_list", "markdown"}
 FILTER_MATCH_MODES = {"contains_any", "contains_all", "equals"}
 AGGREGATION_OPERATIONS = {"count", "sum", "average", "mean", "avg", "summary", "numeric_summary", "correlation", "date_summary"}
-DETERMINISTIC_FILTER_OPERATIONS = {
-    "filter_contains",
-    "filter_equals",
-    "filter_missing",
-    "contains_any",
-    "contains_all",
-}
 
 SEMANTIC_COLUMN_SYNONYMS = {
     "first_name": ["first name", "firstname", "first_name", "given name"],
@@ -79,7 +76,6 @@ TECH_SEARCH_TERMS = [
     "security",
     "cto",
     "information technology",
-    "cybersecurity",
     "solutions engineer",
     "sales engineer",
     "technical consultant",
@@ -126,8 +122,21 @@ TECH_KNOWN_ENTITIES = [
 ]
 
 ALUMNI_TERMS = ["alumni", "alum", "alums"]
-ROW_FILTER_QUERY_HINTS = ALUMNI_TERMS + ["who", "which", "people", "person", "show", "list", "find", "how many"]
-GENERIC_DOMAIN_TEXT_SEARCH_TERMS = {"aerospace"}
+PEOPLE_ROW_REQUEST_HINTS = [
+    "alumni",
+    "alum",
+    "alums",
+    "who",
+    "which",
+    "people",
+    "person",
+    "anyone",
+    "show me",
+    "show",
+    "list",
+    "how many",
+    "find",
+]
 ALUMNI_TECH_FALLBACK_TERMS = [
     "working in tech",
     "work in tech",
@@ -196,7 +205,6 @@ CONCEPT_LIBRARY = {
             "data",
             "startup",
             "technologies",
-            "data",
             "digital",
             "analytics",
             "cybersecurity",
@@ -268,12 +276,11 @@ Return this JSON shape:
 
 def infer_analysis_intent(question, dataset_context):
     intent, valid, error = _infer_analysis_intent(question, dataset_context)
-    # Stamp the verbatim user question so downstream planning re-routes people
-    # questions through the deterministic classifier on the *original* wording,
-    # not the model's rephrased user_goal (which may inject misleading industry
-    # words like "investment banking" or "excluding banking").
+    # Keep the verbatim user wording for deterministic people-query routing.
+    # A model-generated user_goal can subtly change scope (for example, broad
+    # banking into investment banking), so it must not replace the source query.
     if isinstance(intent, dict):
-        intent.setdefault("original_question", question)
+        intent["original_question"] = str(question or "")
     return intent, valid, error
 
 
@@ -425,6 +432,7 @@ def validate_analysis_intent(value):
     normalized = {
         "intent": intent,
         "target_entity": target_entity,
+        "original_question": _clean_text(value.get("original_question"), max_length=800),
         "user_goal": _clean_text(value.get("user_goal"), max_length=800),
         "concepts": concepts,
         "semantic_columns": semantic_columns,
@@ -453,20 +461,16 @@ def intent_to_analysis_plan(intent, dataset_context):
             reason = intent.get("clarifying_question") or "Clarification is needed before this analysis can run."
             return _empty_plan(reason)
 
-    deterministic_operation = intent.get("_deterministic_operation")
-    if isinstance(deterministic_operation, dict):
-        operation_type = deterministic_operation.get("type")
-        params = deterministic_operation.get("params")
-        if operation_type in DETERMINISTIC_FILTER_OPERATIONS and isinstance(params, dict):
-            return _plan(
-                [deterministic_operation],
-                (intent.get("desired_output") or {}).get("format", "table"),
-                intent.get("assumptions") or [],
-            )
-
     resolved = resolve_intent_semantic_columns(intent, dataset_context)
     assumptions = list(intent.get("assumptions") or [])
     assumptions.extend(_resolution_assumptions(resolved))
+
+    if isinstance(intent.get("direct_operation"), dict):
+        return _plan(
+            [intent["direct_operation"]],
+            (intent.get("desired_output") or {}).get("format", "table"),
+            assumptions,
+        )
 
     if intent.get("intent") == "summarize_dataset":
         return _plan([{"type": "column_summary", "params": {"columns": None}}], "metrics", assumptions)
@@ -541,7 +545,7 @@ def heuristic_intent(question, dataset_context):
     if "gpa" in question_lower and not _resolve_semantic_column("gpa", SEMANTIC_COLUMN_SYNONYMS["gpa"], columns, column_names, []):
         return _clarification_intent("No GPA-like column is available in this dataset.")
 
-    deterministic_filter = _deterministic_filter_intent(question, dataset_context)
+    deterministic_filter = _deterministic_row_filter_intent(question, dataset_context)
     if deterministic_filter:
         return deterministic_filter
 
@@ -552,32 +556,7 @@ def heuristic_intent(question, dataset_context):
         return _base_intent("summarize_dataset", "dataset", question, "metrics")
 
     people_spec = classify_people_question(question)
-    if (
-        people_spec
-        and people_spec.get("filter_type") == "occupation"
-        and not _contains_word_or_phrase(
-            question_lower,
-            [
-                "tech",
-                "technology",
-                "tech company",
-                "technology company",
-                "technical role",
-                "startup",
-            ],
-        )
-    ):
-        return people_filter_fallback_intent(question, people_spec)
-
-    if (
-        people_spec
-        and people_spec.get("filter_type") == "industry"
-        and people_spec.get("industry") == "tech"
-        and (
-            people_spec.get("query_scope") in {"tech_company", "technical_role"}
-            or people_spec.get("required_industries")
-        )
-    ):
+    if people_spec and people_spec.get("filter_type") in {"employer", "occupation"} and not _is_broad_tech_combo_question(question_lower):
         return people_filter_fallback_intent(question, people_spec)
 
     if _is_tech_related_question(question_lower):
@@ -600,6 +579,15 @@ def heuristic_intent(question, dataset_context):
             "limit": _extract_requested_count(question_lower, 100),
         }
         intent["assumptions"] = _concept_assumptions(intent["concepts"])
+        if (
+            people_spec
+            and people_spec.get("filter_type") == "industry"
+            and people_spec.get("industry") == "tech"
+        ):
+            # Preserve the richer tech search concepts while carrying the
+            # deterministic scope (tech-company vs technical-role) into the
+            # strict classifier used after broad candidate retrieval.
+            intent["people_filter_spec"] = dict(people_spec)
         return intent
 
     if any(term in question_lower for term in ["top", "highest", "largest", "biggest", "donor", "donors"]):
@@ -660,206 +648,168 @@ def heuristic_intent(question, dataset_context):
     return _unknown_intent("I could not map that question to the approved analysis operations.")
 
 
-def _deterministic_filter_intent(question, dataset_context):
+def _deterministic_row_filter_intent(question, dataset_context):
     question_text = str(question or "").strip()
     question_lower = question_text.lower()
+    if not _looks_like_people_row_request(question_lower):
+        return None
 
-    missing_semantic = _missing_filter_semantic(question_lower)
-    if missing_semantic:
-        if not _context_has_semantics(dataset_context, [missing_semantic]):
-            return _clarification_intent(
-                f"No column matching '{missing_semantic.replace('_', ' ')}' is available in this dataset."
-            )
-        return_columns = _person_display_semantics()
-        if missing_semantic == "linkedin_url":
-            return_columns.remove("linkedin_url")
+    missing_column = _missing_column_for_question(question_lower)
+    if missing_column:
         return _direct_filter_intent(
             question_text,
-            {
-                "type": "filter_missing",
-                "params": {
-                    "column": missing_semantic,
-                    "return_columns": return_columns,
-                    "limit": _extract_requested_count(question_lower, 100),
-                },
-            },
-            f"I filtered rows where {missing_semantic.replace('_', ' ')} is missing.",
+            "filter_missing",
+            {"column": missing_column},
+            "Rows where the requested alumni field is missing.",
         )
 
     name_match = re.search(
-        r"\bnamed\s+([A-Za-z][A-Za-z'’-]*)\s+([A-Za-z][A-Za-z'’-]*)\b",
+        r"\bnamed\s+([A-Z][A-Za-z'-]+)\s+([A-Z][A-Za-z'-]+)\b",
         question_text,
-        flags=re.IGNORECASE,
     )
-    if name_match and _context_has_semantics(dataset_context, ["first_name", "last_name"]):
-        first_name, last_name = name_match.groups()
+    if name_match:
+        first, last = name_match.group(1), name_match.group(2)
         return _direct_filter_intent(
             question_text,
+            "contains_all",
             {
-                "type": "contains_all",
-                "params": {
-                    "columns": ["first_name", "last_name"],
-                    "terms": [first_name, last_name],
-                    "column_term_groups": [
-                        {"concept": "first_name", "columns": ["first_name"], "terms": [first_name]},
-                        {"concept": "last_name", "columns": ["last_name"], "terms": [last_name]},
-                    ],
-                    "display_columns": _person_display_semantics(),
-                    "include_match_reason": False,
-                    "question": question_text,
-                    "limit": _extract_requested_count(question_lower, 100),
-                },
+                "column_term_groups": [
+                    {"concept": "first_name", "columns": ["first_name"], "terms": [first]},
+                    {"concept": "last_name", "columns": ["last_name"], "terms": [last]},
+                ],
+                "columns": ["first_name", "last_name"],
+                "terms": [first, last],
             },
-            f"I matched first name {first_name} and last name {last_name}.",
+            f"Rows where the alumni name matches {first} {last}.",
         )
 
-    employer_contains = re.search(
-        r"\bemployer\s+contains\s+['\"]?([^'\"?.!,]+)",
-        question_text,
-        flags=re.IGNORECASE,
-    )
-    if employer_contains and _context_has_semantics(dataset_context, ["employer"]):
-        term = employer_contains.group(1).strip()
+    employer_contains = re.search(r"\bemployer\s+contains\s+([A-Za-z0-9&.' -]+)", question_text, re.IGNORECASE)
+    if employer_contains:
+        term = employer_contains.group(1).strip().rstrip("?.!,")
         if term:
             return _direct_filter_intent(
                 question_text,
-                {
-                    "type": "filter_contains",
-                    "params": {
-                        "column": "employer",
-                        "terms": [term],
-                        "display_columns": _person_display_semantics(),
-                        "include_match_reason": False,
-                        "question": question_text,
-                        "limit": _extract_requested_count(question_lower, 100),
-                    },
-                },
+                "filter_contains",
+                {"column": "employer", "terms": [term]},
                 f"Rows where employer contains {term}.",
             )
 
-    location = _requested_location(question_text)
-    if location and _context_has_semantics(dataset_context, ["city"]):
+    if _contains_word_or_phrase(question_lower, ["graduated", "graduation year", "grad year", "class year"]):
+        year = _extract_year(question_lower)
+        if year:
+            return _direct_filter_intent(
+                question_text,
+                "filter_equals",
+                {"column": "grad_year", "value": int(year)},
+                f"Rows where graduation year equals {year}.",
+            )
+
+    location = _extract_location_phrase(question_text)
+    if location:
         return _direct_filter_intent(
             question_text,
-            {
-                "type": "filter_contains",
-                "params": {
-                    "column": "location",
-                    "terms": [location],
-                    "display_columns": _person_display_semantics(extra=["city"]),
-                    "include_match_reason": False,
-                    "question": question_text,
-                    "limit": _extract_requested_count(question_lower, 100),
-                },
-            },
-            f"I matched location text containing {location}.",
+            "filter_contains",
+            {"column": "location", "terms": [location]},
+            f"Rows where location contains {location}.",
         )
 
-    year_match = re.search(
-        r"\b(?:graduated(?:\s+in)?|graduation\s+year|class(?:\s+of)?|grad(?:uation)?\s+year)\s+(19\d{2}|20\d{2}|21\d{2})\b",
-        question_lower,
-    )
-    if year_match and _context_has_semantics(dataset_context, ["grad_year"]):
-        year = int(year_match.group(1))
+    if _contains_word_or_phrase(question_lower, ["aerospace"]):
         return _direct_filter_intent(
             question_text,
-            {
-                "type": "filter_equals",
-                "params": {
-                    "column": "grad_year",
-                    "value": year,
-                    "return_columns": _person_display_semantics(extra=["grad_year"]),
-                    "limit": _extract_requested_count(question_lower, 100),
-                },
-            },
-            f"I filtered for graduation year {year}.",
-        )
-
-    domain_term = next(
-        (
-            term
-            for term in GENERIC_DOMAIN_TEXT_SEARCH_TERMS
-            if _contains_word_or_phrase(question_lower, [term])
-        ),
-        None,
-    )
-    if domain_term:
-        return _direct_filter_intent(
-            question_text,
-            {
-                "type": "contains_any",
-                "params": {
-                    "columns": ["occupation", "employer", "major"],
-                    "terms": [domain_term],
-                    "display_columns": _person_display_semantics(),
-                    "include_match_reason": False,
-                    "question": question_text,
-                    "limit": _extract_requested_count(question_lower, 100),
-                },
-            },
-            f"Rows matching {domain_term} in alumni role, employer, or major fields.",
+            "contains_any",
+            {"columns": ["occupation", "employer", "major"], "terms": ["aerospace"]},
+            "Rows matching aerospace in alumni role, employer, or major fields.",
         )
 
     return None
 
 
-def _direct_filter_intent(question, operation, assumption):
-    intent = _base_intent("find_records", "rows", question, "table")
-    intent["_deterministic_operation"] = operation
-    intent["assumptions"] = [assumption]
-    return intent
+def _looks_like_people_row_request(question_lower):
+    return bool(
+        _contains_word_or_phrase(question_lower, PEOPLE_ROW_REQUEST_HINTS)
+        and _contains_word_or_phrase(question_lower, ["alumni", "alum", "alums", "who", "which", "people", "person"])
+    )
 
 
-def _missing_filter_semantic(question_lower):
+def _is_broad_tech_combo_question(question_lower):
+    return _contains_word_or_phrase(
+        question_lower,
+        [
+            "work in tech",
+            "working in tech",
+            "in tech",
+            "roles in tech",
+            "role in tech",
+            "tech company",
+            "tech companies",
+            "technology company",
+            "technology companies",
+        ],
+    )
+
+
+def _missing_column_for_question(question_lower):
     if not _contains_word_or_phrase(question_lower, ["missing", "null", "blank", "empty"]):
         return None
-    if not _contains_word_or_phrase(question_lower, ROW_FILTER_QUERY_HINTS):
-        return None
-
-    targets = [
-        ("linkedin_url", ["linkedin", "linkedin url", "linkedin urls"]),
-        ("employer", ["employer", "employers", "company", "companies"]),
-        ("occupation", ["occupation", "occupations", "title", "titles", "job", "jobs", "role", "roles"]),
-        ("email", ["email", "emails", "email address"]),
-        ("phone", ["phone", "phones", "phone number"]),
-        ("city", ["city", "cities", "location", "locations"]),
-        ("grad_year", ["graduation year", "class year", "grad year"]),
-    ]
-    for semantic, terms in targets:
-        if _contains_word_or_phrase(question_lower, terms):
-            return semantic
+    if _contains_word_or_phrase(question_lower, ["linkedin", "linked in"]):
+        return "linkedin_url"
+    if _contains_word_or_phrase(question_lower, ["employer", "company", "organization", "organisation"]):
+        return "employer"
+    if _contains_word_or_phrase(question_lower, ["title", "occupation", "job", "role", "position"]):
+        return "occupation"
+    if _contains_word_or_phrase(question_lower, ["location", "city"]):
+        return "location"
     return None
 
 
-def _requested_location(question):
+def _extract_year(question_lower):
+    match = re.search(r"\b(19\d{2}|20\d{2})\b", question_lower)
+    return match.group(1) if match else None
+
+
+def _extract_location_phrase(question):
+    text = str(question or "")
     match = re.search(
-        r"\b(?:in|near|from)\s+([A-Z][A-Za-z'’.-]*(?:\s+[A-Z][A-Za-z'’.-]*){0,3})(?=\s*[?.!,]|$)",
-        str(question or ""),
+        r"\b(?:in|near|from|based in|located in)\s+([A-Z][A-Za-z.'-]*(?:\s+[A-Z][A-Za-z.'-]*){0,3})",
+        text,
     )
-    return match.group(1).strip().rstrip("?.!,") if match else None
+    if not match:
+        return None
+    candidate = match.group(1).strip().rstrip("?.!,")
+    if not candidate or industry_for_question(candidate):
+        return None
+    return candidate
 
 
-def _context_has_semantics(dataset_context, semantics):
-    columns = dataset_context.get("columns") or []
-    actual_names = [str(column.get("name")) for column in columns if column.get("name") is not None]
-    return all(
-        _resolve_semantic_column(
-            semantic,
-            SEMANTIC_COLUMN_SYNONYMS.get(semantic, [semantic]),
-            columns,
-            actual_names,
-            [],
-        )
-        for semantic in semantics
-    )
+def _direct_filter_intent(question, operation_type, params, assumption):
+    question_lower = str(question or "").lower()
+    limit = _extract_requested_count(question_lower, 500)
+    display_columns = ["first_name", "last_name", "occupation", "employer", "linkedin_url"]
+    operation_params = dict(params)
+    operation_params.setdefault("limit", limit)
+    operation_params.setdefault("display_columns", display_columns)
+    operation_params.setdefault("return_columns", display_columns)
+    operation_params.setdefault("include_match_reason", False)
+    operation_params.setdefault("question", question)
 
-
-def _person_display_semantics(extra=None):
-    return list(
-        dict.fromkeys(
-            ["first_name", "last_name", "occupation", "employer", *(extra or []), "linkedin_url"]
-        )
-    )
+    intent = _base_intent("find_records", "rows", question, "table")
+    intent["direct_operation"] = {"type": operation_type, "params": operation_params}
+    intent["semantic_columns"] = {
+        "first_name": SEMANTIC_COLUMN_SYNONYMS["first_name"],
+        "last_name": SEMANTIC_COLUMN_SYNONYMS["last_name"],
+        "occupation": SEMANTIC_COLUMN_SYNONYMS["occupation"],
+        "employer": SEMANTIC_COLUMN_SYNONYMS["employer"],
+        "linkedin_url": SEMANTIC_COLUMN_SYNONYMS["linkedin_url"],
+        "location": SEMANTIC_COLUMN_SYNONYMS["city"],
+        "grad_year": SEMANTIC_COLUMN_SYNONYMS["grad_year"],
+    }
+    intent["desired_output"] = {
+        "format": "table",
+        "semantic_columns": display_columns,
+        "limit": limit,
+    }
+    intent["assumptions"] = [assumption]
+    return intent
 
 
 def _plan_find_records(intent, resolved, assumptions):
@@ -895,7 +845,6 @@ def _plan_find_records(intent, resolved, assumptions):
         intent.get("intent") == "people_filter"
         or any(_is_tech_concept(concept.get("name")) for concept in intent.get("concepts") or [])
     )
-    inferred_people_spec = classify_people_question(intent.get("original_question") or intent.get("user_goal"))
     params = {
         "columns": all_columns,
         "terms": list(dict.fromkeys(all_terms)),
@@ -906,36 +855,15 @@ def _plan_find_records(intent, resolved, assumptions):
     }
     if people_filter_spec:
         params["filter_mode"] = "people"
-        params["people_filter"] = dict(inferred_people_spec or people_filter_spec)
-        if inferred_people_spec:
-            deterministic_display = _resolved_columns_for_requested(
-                intent,
-                resolved,
-                _display_semantics_for_question(str(intent.get("original_question") or intent.get("user_goal") or "").lower()),
-            )
-            if deterministic_display:
-                params["display_columns"] = deterministic_display
-    elif inferred_people_spec and (
-        not strict_people_filter
-        or inferred_people_spec.get("filter_type") != "industry"
-        or inferred_people_spec.get("industry") != "tech"
-        or inferred_people_spec.get("query_scope") in {"tech_company", "technical_role"}
-        or inferred_people_spec.get("required_industries")
+        params["people_filter"] = dict(people_filter_spec)
+    elif not strict_people_filter and (
+        inferred_spec := classify_people_question(intent.get("original_question") or intent.get("user_goal"))
     ):
         # The model produced a confident keyword search, but the question is a
         # people/industry query: keyword hits may only be candidates, so route
-        # execution through the strict multi-label people classifier. Classify
-        # the *original* question, not the model's rephrased user_goal, so
-        # finance/banking exclusion wording is not lost or distorted.
+        # execution through the strict multi-label people classifier.
         params["filter_mode"] = "people"
-        params["people_filter"] = dict(inferred_people_spec)
-        deterministic_display = _resolved_columns_for_requested(
-            intent,
-            resolved,
-            _display_semantics_for_question(str(intent.get("original_question") or intent.get("user_goal") or "").lower()),
-        )
-        if deterministic_display:
-            params["display_columns"] = deterministic_display
+        params["people_filter"] = dict(inferred_spec)
     elif strict_people_filter:
         params["filter_mode"] = "tech_people"
         params["people_filter"] = {
@@ -1126,12 +1054,13 @@ def _return_columns_for_intent(intent, resolved, default):
 
 
 def _display_semantics_for_question(question_lower):
-    explicit = _explicit_display_semantics(question_lower)
-    if explicit:
-        return explicit
-
-    semantics = ["first_name", "last_name", "occupation", "employer"]
-    requested = {
+    text = str(question_lower or "")
+    field_terms = {
+        "first_name": ["name", "names", "first name", "first names"],
+        "last_name": ["name", "names", "last name", "last names"],
+        "occupation": ["title", "titles", "occupation", "occupations", "job", "jobs", "role", "roles"],
+        "employer": ["employer", "employers", "company", "companies"],
+        "linkedin_url": ["linkedin", "linkedin url", "linkedin urls"],
         "major": ["major", "majors", "degree", "degrees", "field of study"],
         "grad_year": ["graduation year", "graduation years", "class year", "class years", "grad year", "grad yr"],
         "email": ["email", "emails", "email address", "e-mail"],
@@ -1139,65 +1068,37 @@ def _display_semantics_for_question(question_lower):
         "city": ["city", "cities", "location", "locations"],
         "state": ["state", "states", "province", "region"],
     }
-    for semantic, terms in requested.items():
-        if _contains_word_or_phrase(question_lower, terms) and not _display_semantic_is_negated(question_lower, terms):
+    restricts_display = bool(
+        re.search(r"\bonly\s+include\b|\binclude\s+only\b|\bcolumns?\b|\bfields?\b", text)
+        or re.search(r"\bshow\b.+\bonly\b", text)
+    )
+    if restricts_display:
+        explicit = [
+            semantic
+            for semantic, terms in field_terms.items()
+            if _contains_word_or_phrase(text, terms) and not _display_semantic_is_negated(text, terms)
+        ]
+        if explicit:
+            return list(dict.fromkeys(explicit))
+
+    semantics = ["first_name", "last_name", "occupation", "employer"]
+    for semantic in ["major", "grad_year", "email", "phone", "city", "state"]:
+        terms = field_terms[semantic]
+        if _contains_word_or_phrase(question_lower, terms) and not _display_semantic_is_negated(text, terms):
             insert_at = 1 if semantic == "grad_year" else len(semantics)
             semantics.insert(insert_at, semantic)
     semantics.append("linkedin_url")
     return list(dict.fromkeys(semantics))
 
 
-def _explicit_display_semantics(question_lower):
-    text = str(question_lower or "")
-    restricts_display = bool(
-        re.search(r"\bonly\s+include\b|\binclude\s+only\b|\bcolumns?\b|\bfields?\b", text)
-        or re.search(r"\bshow\b.+\bonly\b", text)
-    )
-    if not restricts_display:
-        return []
-
-    requested = []
-    if _contains_word_or_phrase(text, ["name", "names"]):
-        requested.extend(["first_name", "last_name"])
-    employer_terms = ["employer", "employers", "company", "companies"]
-    if _contains_word_or_phrase(text, employer_terms) and not _display_semantic_is_negated(text, employer_terms):
-        requested.append("employer")
-    occupation_terms = ["title", "titles", "occupation", "occupations", "role", "roles", "job", "jobs"]
-    if _contains_word_or_phrase(text, occupation_terms) and not _display_semantic_is_negated(text, occupation_terms):
-        requested.append("occupation")
-    linkedin_terms = ["linkedin", "linkedin url", "linkedin urls"]
-    if _contains_word_or_phrase(text, linkedin_terms) and not _display_semantic_is_negated(text, linkedin_terms):
-        requested.append("linkedin_url")
-    major_terms = ["major", "majors", "degree", "degrees", "field of study"]
-    if _contains_word_or_phrase(text, major_terms) and not _display_semantic_is_negated(text, major_terms):
-        requested.append("major")
-    grad_terms = ["graduation year", "graduation years", "class year", "class years", "grad year", "grad yr"]
-    if _contains_word_or_phrase(text, grad_terms) and not _display_semantic_is_negated(text, grad_terms):
-        requested.append("grad_year")
-    email_terms = ["email", "emails", "email address", "e-mail"]
-    if _contains_word_or_phrase(text, email_terms) and not _display_semantic_is_negated(text, email_terms):
-        requested.append("email")
-    phone_terms = ["phone", "phone number", "mobile"]
-    if _contains_word_or_phrase(text, phone_terms) and not _display_semantic_is_negated(text, phone_terms):
-        requested.append("phone")
-    city_terms = ["city", "cities", "location", "locations"]
-    if _contains_word_or_phrase(text, city_terms) and not _display_semantic_is_negated(text, city_terms):
-        requested.append("city")
-    state_terms = ["state", "states", "province", "region"]
-    if _contains_word_or_phrase(text, state_terms) and not _display_semantic_is_negated(text, state_terms):
-        requested.append("state")
-
-    if "only" in text and requested:
-        return list(dict.fromkeys(requested))
-    return []
-
-
 def _display_semantic_is_negated(text, terms):
-    for term in terms:
-        escaped = re.escape(str(term))
-        if re.search(rf"\b(?:do\s+not|don't|dont|not|without|exclude|excluding)\s+(?:include\s+)?(?:their\s+)?{escaped}\b", text):
-            return True
-    return False
+    return any(
+        re.search(
+            rf"\b(?:do\s+not|don't|dont|not|without|exclude|excluding)\s+(?:include\s+)?(?:their\s+)?{re.escape(str(term))}\b",
+            text,
+        )
+        for term in terms
+    )
 
 
 def alumni_tech_fallback_intent(question):
@@ -1233,6 +1134,17 @@ def alumni_tech_fallback_intent(question):
     intent["assumptions"] = [
         "I used the default alumni tech filter: explicit technical titles, strong tech employer names, known technology companies, and high-confidence classified tech employers count as confirmed matches; uncertain matches are kept separate."
     ]
+    people_spec = classify_people_question(question)
+    if (
+        people_spec
+        and people_spec.get("filter_type") == "industry"
+        and people_spec.get("industry") == "tech"
+        and (
+            people_spec.get("query_scope") in {"tech_company", "technical_role"}
+            or people_spec.get("required_industries")
+        )
+    ):
+        intent["people_filter_spec"] = dict(people_spec)
     return intent
 
 
@@ -1278,25 +1190,23 @@ def people_filter_fallback_intent(question, spec):
         industry = taxonomy.get("industry") or str(spec.get("industry") or "industry")
         title_terms = list(taxonomy.get("title_keywords") or [])
         employer_terms = _merge_lists(taxonomy.get("employer_keywords"), taxonomy.get("known_companies"))
-        title_concept = "software_engineer_role" if industry == "tech" and spec.get("query_scope") == "technical_role" else f"{industry}_titles"
-        employer_concept = "tech_company" if industry == "tech" else f"{industry}_employers"
         intent["concepts"] = [
             {
-                "name": title_concept,
+                "name": f"{industry}_titles",
                 "definition": f"Occupations that indicate {industry}.",
                 "search_terms": title_terms,
                 "known_entities": [],
             },
             {
-                "name": employer_concept,
+                "name": f"{industry}_employers",
                 "definition": f"Employers that indicate {industry}.",
                 "search_terms": list(taxonomy.get("employer_keywords") or []),
                 "known_entities": list(taxonomy.get("known_companies") or []),
             },
         ]
         intent["filters"] = [
-            {"concept": title_concept, "apply_to_semantic_columns": ["occupation"], "match_mode": "contains_any"},
-            {"concept": employer_concept, "apply_to_semantic_columns": ["employer"], "match_mode": "contains_any"},
+            {"concept": f"{industry}_titles", "apply_to_semantic_columns": ["occupation"], "match_mode": "contains_any"},
+            {"concept": f"{industry}_employers", "apply_to_semantic_columns": ["employer"], "match_mode": "contains_any"},
         ]
         intent["assumptions"] = [
             f"I used the {industry} taxonomy: explicit {industry} titles, known {industry} companies, and strong "
@@ -1588,10 +1498,6 @@ def _as_list(value):
     return [value]
 
 
-def _limit(value, default):
-    return clamp_limit(value, default)
-
-
 def _extract_requested_count(question_lower, default):
     for pattern in [
         r"\b(?:top|bottom|first|last)\s+(\d{1,3})\b",
@@ -1603,12 +1509,8 @@ def _extract_requested_count(question_lower, default):
     return default
 
 
-def _contains_word_or_phrase(text, terms):
-    return contains_word_or_phrase(text, terms)
-
-
 def _is_mutation_request(question_lower):
-    return contains_word_or_phrase(
+    return _contains_word_or_phrase(
         question_lower,
         [
             "delete",
@@ -1625,7 +1527,3 @@ def _is_mutation_request(question_lower):
             "replace all",
         ],
     )
-
-
-def _normalize(value):
-    return normalize_text(value)

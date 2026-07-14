@@ -124,6 +124,20 @@ def test_sanitizer_handles_empty_inputs_and_preserves_row_count():
     assert len(safe_rows) == len(rows)
 
 
+def test_sanitizer_deduplicates_columns_without_misaligning_list_rows():
+    columns = ["First Name", "Employer", "Employer"]
+    rows = [["Ada", "Google", "duplicate"]]
+
+    safe_columns, safe_rows = sanitize_display_rows(columns, rows, "Show alumni")
+
+    assert safe_columns == ["First Name", "Employer"]
+    assert safe_rows == [["Ada", "Google"]]
+
+
+def test_sanitizer_ignores_malformed_non_list_columns():
+    assert sanitize_display_rows("First Name", [["Ada"]], "Show alumni") == ([], [[]])
+
+
 def test_response_payload_sanitizes_results_answer_blocks_and_debug_keys():
     payload = {
         "question": "Show me alumni in tech",

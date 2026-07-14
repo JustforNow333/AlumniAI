@@ -214,7 +214,12 @@ def register_uploaded_dataset(file_storage):
 
     metadata = create_dataset_metadata(dataset_id, file_metadata, df)
     registry[dataset_id] = metadata
-    save_dataset_registry(registry)
+    try:
+        save_dataset_registry(registry)
+    except DatasetStoreError:
+        # Do not leave an uploaded orphan when metadata persistence fails.
+        Path(file_metadata["absolute_file_path"]).unlink(missing_ok=True)
+        raise
     return metadata
 
 
@@ -236,7 +241,7 @@ def dataset_public_metadata(metadata):
     try:
         if not file_path or not _resolve_dataset_file_path(file_path).exists():
             status = "missing"
-    except OSError:
+    except (OSError, DatasetStoreError):
         status = "missing"
     original_filename = metadata.get("original_filename") or ""
     return {
@@ -295,7 +300,7 @@ def delete_dataset(dataset_id):
     if file_path:
         try:
             _resolve_dataset_file_path(file_path).unlink(missing_ok=True)
-        except OSError:
+        except (OSError, DatasetStoreError):
             pass  # metadata removal still proceeds; the orphan file is harmless
     save_dataset_registry(registry)
     return dataset_public_metadata(metadata)

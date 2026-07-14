@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from app import create_app
-from app.services import ai_service
+from app.services import ai_service, dataset_store
 from app.services.dataset_store import (
     DatasetFileMissingError,
     DatasetNotFoundError,
@@ -27,6 +27,7 @@ from app.services.dataset_store import (
     load_dataset_dataframe,
     load_dataset_registry,
     read_dataframe_from_path,
+    register_uploaded_dataset,
     rename_dataset,
     save_dataset_registry,
     save_uploaded_file,
@@ -242,6 +243,17 @@ def test_dataset_public_metadata_no_filename_or_name(ctx):
     assert result["display_name"] == "Untitled dataset"
 
 
+def test_dataset_public_metadata_marks_outside_storage_path_missing(ctx, tmp_path):
+    outside = tmp_path / "outside.csv"
+    outside.write_text("A\n1\n", encoding="utf-8")
+
+    result = dataset_public_metadata(
+        {"dataset_id": "x", "original_filename": "outside.csv", "file_path": str(outside)}
+    )
+
+    assert result["status"] == "missing"
+
+
 # --- create_dataset_metadata ---
 
 def test_create_dataset_metadata():
@@ -315,6 +327,37 @@ def test_delete_without_file_path(ctx):
     save_dataset_registry({"id1": {"dataset_id": "id1"}})
     result = delete_dataset("id1")
     assert result["dataset_id"] == "id1"
+
+
+def test_delete_with_outside_storage_path_removes_only_metadata(ctx, tmp_path):
+    outside = tmp_path / "outside.csv"
+    outside.write_text("A\n1\n", encoding="utf-8")
+    save_dataset_registry({"id1": {"dataset_id": "id1", "file_path": str(outside)}})
+
+    result = delete_dataset("id1")
+
+    assert result["dataset_id"] == "id1"
+    assert load_dataset_registry() == {}
+    assert outside.exists()
+
+
+def test_register_upload_removes_file_when_registry_save_fails(ctx, monkeypatch):
+    class FakeUpload:
+        filename = "upload.csv"
+
+        @staticmethod
+        def save(path):
+            Path(path).write_text("A\n1\n", encoding="utf-8")
+
+    def fail_save(_registry):
+        raise DatasetRegistryError("simulated write failure")
+
+    monkeypatch.setattr(dataset_store, "save_dataset_registry", fail_save)
+
+    with pytest.raises(DatasetRegistryError, match="simulated write failure"):
+        register_uploaded_dataset(FakeUpload())
+
+    assert list(get_storage_paths()["upload_folder"].iterdir()) == []
 
 
 # --- load_dataset_dataframe ---

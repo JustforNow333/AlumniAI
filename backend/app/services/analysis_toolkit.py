@@ -20,9 +20,9 @@ from app.services import people_classifier
 from app.services.spreadsheet_service import to_json_safe
 from app.utils.text_utils import (
     clamp_limit as _clamp_limit,
-    contains_word_or_phrase as _shared_contains_word_or_phrase,
-    dedupe_warnings as _shared_dedupe_warnings,
-    normalize_text as _shared_normalize_text,
+    contains_word_or_phrase as _contains_word_or_phrase,
+    dedupe_warnings as _dedupe_warnings,
+    normalize_text as _normalize_name,
 )
 
 
@@ -1937,10 +1937,6 @@ def _dedupe_match_reasons(matches):
     return reasons
 
 
-def _contains_word_or_phrase(text, terms):
-    return _shared_contains_word_or_phrase(text, terms)
-
-
 def _infer_type(series):
     if pd.api.types.is_bool_dtype(series):
         return "boolean"
@@ -1970,14 +1966,6 @@ def _warning(kind, message, requested=None, resolved_to=None, suggestions=None):
     if suggestions:
         warning["suggestions"] = suggestions
     return warning
-
-
-def _dedupe_warnings(warnings):
-    return _shared_dedupe_warnings(warnings)
-
-
-def _normalize_name(value):
-    return _shared_normalize_text(value)
 
 
 def _normalize_compact(value):

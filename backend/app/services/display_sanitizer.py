@@ -119,6 +119,7 @@ def sanitize_display_columns(columns: Any, question: Any = "") -> list[str]:
         return []
 
     kept = []
+    seen = set()
     for column in columns:
         text = str(column or "").strip()
         if not text or is_forbidden_display_column(text):
@@ -126,13 +127,18 @@ def sanitize_display_columns(columns: Any, question: Any = "") -> list[str]:
         optional_group = _optional_column_group(text)
         if optional_group and not _question_requests_optional_group(question, optional_group):
             continue
+        key = normalize_display_key(text)
+        if key in seen:
+            continue
+        seen.add(key)
         kept.append(text)
     return kept
 
 
 def sanitize_display_rows(columns: Any, rows: Any, question: Any = "") -> tuple[list[str], list[Any]]:
     """Sanitize table columns and rows without changing row count or ordering."""
-    source_columns = [str(column or "").strip() for column in columns or []]
+    source_values = columns if isinstance(columns, (list, tuple)) else []
+    source_columns = [str(column or "").strip() for column in source_values]
     if not source_columns and isinstance(rows, list):
         source_columns = _columns_from_mapping_rows(rows)
 

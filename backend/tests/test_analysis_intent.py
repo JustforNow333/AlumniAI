@@ -225,6 +225,47 @@ def test_tech_company_query_infers_tech_company_terms():
     assert "Google" in group["terms"]
 
 
+def test_explicit_people_display_columns_respect_names_and_employers_only():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada"],
+            "Last Name": ["Lovelace"],
+            "Occupation": ["Engineer"],
+            "Employer": ["Analytical Engines"],
+            "LinkedIn URL": ["https://linkedin.example/ada"],
+        }
+    )
+    context = build_dataset_context(df)
+
+    intent = heuristic_intent("Show tech alumni names and employers only.", context)
+    plan = intent_to_analysis_plan(intent, context)
+
+    assert plan["operations"][0]["params"]["display_columns"] == [
+        "First Name",
+        "Last Name",
+        "Employer",
+    ]
+
+
+def test_negated_optional_display_column_is_not_added():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada"],
+            "Last Name": ["Lovelace"],
+            "Occupation": ["Finance Analyst"],
+            "Employer": ["Acme Capital"],
+            "Major": ["Mathematics"],
+            "LinkedIn URL": [""],
+        }
+    )
+    context = build_dataset_context(df)
+
+    intent = heuristic_intent("Show me alumni in finance. Do not include majors.", context)
+    plan = intent_to_analysis_plan(intent, context)
+
+    assert "Major" not in plan["operations"][0]["params"]["display_columns"]
+
+
 def test_software_engineers_query_infers_role_terms():
     _df, context = uppercase_context()
 

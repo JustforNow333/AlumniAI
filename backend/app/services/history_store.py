@@ -271,7 +271,7 @@ def save_history_item_as_insight(history_id):
 def _clean_response_payload(response_payload, question=""):
     if response_payload is None:
         return None
-    if not isinstance(response_payload, dict) or isinstance(response_payload, list):
+    if not isinstance(response_payload, dict):
         raise HistoryValidationError("response_payload must be a JSON object.")
 
     safe_payload = to_json_safe(sanitize_response_payload(response_payload, question))

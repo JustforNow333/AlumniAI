@@ -1,6 +1,5 @@
 import json
 import os
-import re
 
 from app.services import ai_service
 from app.services.answer_schema import (
@@ -9,6 +8,11 @@ from app.services.answer_schema import (
     plain_markdown_answer,
 )
 from app.services.spreadsheet_service import to_json_safe
+from app.utils.ai_helpers import (
+    extract_response_text as _extract_response_text,
+    parse_json_response as _parse_json,
+)
+from app.utils.text_utils import format_warning as _format_warning
 
 
 PRESENTER_INSTRUCTIONS = """
@@ -160,12 +164,6 @@ def _ensure_people_filter_blocks(answer, operation_results, fallback):
     return normalized if valid else answer
 
 
-def _format_warning(warning):
-    if isinstance(warning, dict):
-        return str(warning.get("message") or warning)
-    return str(warning)
-
-
 def _dedupe_warnings(warnings):
     deduped = []
     seen = set()
@@ -175,33 +173,3 @@ def _dedupe_warnings(warnings):
             seen.add(text)
             deduped.append(warning)
     return deduped
-
-
-def _parse_json(text):
-    text = str(text or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError as nested_exc:
-                raise ValueError("Presenter returned invalid JSON.") from nested_exc
-        raise ValueError("Presenter returned invalid JSON.") from exc
-
-
-def _extract_response_text(response):
-    output_text = getattr(response, "output_text", None)
-    if output_text:
-        return output_text.strip()
-    for item in getattr(response, "output", []) or []:
-        for content in getattr(item, "content", []) or []:
-            text = getattr(content, "text", None)
-            if text:
-                return text.strip()
-    return ""
