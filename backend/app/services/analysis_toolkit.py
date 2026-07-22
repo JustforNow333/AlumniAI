@@ -17,6 +17,13 @@ from app.services.industry_matching import (
 )
 from app.services.industry_taxonomies import get_taxonomy
 from app.services import people_classifier
+from app.services.email_utils import extract_email_tokens
+from app.services.intent_filter import (
+    evaluate_predicate_row,
+    matching_email_addresses,
+    row_satisfies_predicate_group,
+    validate_filter_predicate_params,
+)
 from app.services.spreadsheet_service import to_json_safe
 from app.utils.text_utils import (
     clamp_limit as _clamp_limit,
@@ -28,6 +35,7 @@ from app.utils.text_utils import (
 
 MAX_LIMIT = 500
 DEFAULT_LIMIT = 100
+INTERNAL_ROW_ID_KEY = "__alumniai_row_id__"
 
 ALLOWED_OPERATION_TYPES = {
     "preview",
@@ -35,6 +43,8 @@ ALLOWED_OPERATION_TYPES = {
     "filter_equals",
     "filter_missing",
     "filter_contains",
+    "filter_predicates",
+    "composite_people_filter",
     "search_text",
     "contains_any",
     "contains_all",
@@ -176,6 +186,10 @@ def execute_operation(df, operation, assumptions=None):
             return _op_filter_missing(df, params, assumptions)
         if operation_type == "filter_contains":
             return _op_filter_contains(df, params, assumptions)
+        if operation_type == "filter_predicates":
+            return _op_filter_predicates(df, params, assumptions)
+        if operation_type == "composite_people_filter":
+            return _op_composite_people_filter(df, params, assumptions)
         if operation_type == "search_text":
             return _op_search_text(df, params, assumptions)
         if operation_type == "contains_any":
@@ -227,6 +241,10 @@ def validate_operation(operation):
         return False, f"Unknown operation type '{operation_type}'."
     if not isinstance(operation.get("params", {}), dict):
         return False, "Operation params must be an object."
+    if operation_type == "filter_predicates":
+        return validate_filter_predicate_params(operation.get("params", {}))
+    if operation_type == "composite_people_filter":
+        return _validate_composite_people_filter_params(operation.get("params", {}))
     return True, ""
 
 
@@ -319,6 +337,612 @@ def _op_filter_contains(df, params, assumptions):
         warnings,
         require_all=False,
     )
+
+
+def _op_filter_predicates(df, params, assumptions):
+    """Apply validated typed predicates and verify every selected source row."""
+    valid, error = validate_filter_predicate_params(params, available_columns=df.columns)
+    if not valid:
+        return _error_result("filter_predicates", error)
+
+    logic = str(params.get("logic") or "and").casefold()
+    predicates = []
+    for raw in params.get("predicates") or []:
+        predicate = dict(raw)
+        predicate["columns"] = list(predicate.get("columns") or predicate.get("resolved_columns") or [])
+        predicates.append(predicate)
+
+    primary_mask = pd.Series(
+        [row_satisfies_predicate_group(row, logic, predicates) for _, row in df.iterrows()],
+        index=df.index,
+        dtype=bool,
+    )
+    primary_matches = df.loc[primary_mask]
+
+    # Re-evaluate the selected source rows independently before presentation.
+    # A nonzero removal count is a defect signal, not a normal fuzzy threshold.
+    verified_positions = [
+        position
+        for position, (_index, row) in enumerate(primary_matches.iterrows())
+        if row_satisfies_predicate_group(row, logic, predicates)
+    ]
+    verified = primary_matches.iloc[verified_positions].copy()
+    post_verification_removed_count = int(primary_matches.shape[0] - verified.shape[0])
+    warnings = []
+    if post_verification_removed_count:
+        warnings.append(
+            _warning(
+                "post_verification_removal",
+                "Some initially selected rows failed deterministic result verification and were removed.",
+                resolved_to={"removed_count": post_verification_removed_count},
+            )
+        )
+
+    email_predicates = [
+        predicate
+        for predicate in predicates
+        if predicate.get("operator") in {"email_domain_in", "email_domain_not_in"}
+    ]
+    if email_predicates:
+        verified["Matching Email"] = [
+            "; ".join(
+                dict.fromkeys(
+                    address
+                    for predicate in email_predicates
+                    for address in matching_email_addresses(row, predicate)
+                )
+            )
+            for _, row in verified.iterrows()
+        ]
+
+    resolved_filter_columns = list(
+        dict.fromkeys(column for predicate in predicates for column in predicate.get("columns") or [])
+    )
+    invalid_email_value_count = _invalid_email_row_count(df, email_predicates)
+    predicate_metrics = {
+        "total_rows": int(df.shape[0]),
+        "rows_matched": int(verified.shape[0]),
+        "matched_row_count": int(verified.shape[0]),
+        "predicate_rows_matched": int(verified.shape[0]),
+        "predicate_count": len(predicates),
+        "predicate_logic": logic,
+        "resolved_filter_columns": resolved_filter_columns,
+        "invalid_email_value_count": invalid_email_value_count,
+        "post_verification_removed_count": post_verification_removed_count,
+    }
+
+    base_filter = params.get("base_filter")
+    if isinstance(base_filter, dict):
+        base_params = dict(base_filter.get("params") or {})
+        if email_predicates:
+            requested = list(base_params.get("display_columns") or base_params.get("return_columns") or [])
+            requested = [column for column in requested if column not in resolved_filter_columns]
+            if "Matching Email" not in requested:
+                requested.append("Matching Email")
+            base_params["display_columns"] = requested
+            base_params["return_columns"] = requested
+        combined = _op_contains_any(verified, base_params, assumptions)
+        if combined.get("status") != "ok":
+            return combined
+        combined = dict(combined)
+        combined["operation_type"] = "filter_predicates"
+        combined["predicate_logic"] = logic
+        combined["predicate_count"] = len(predicates)
+        combined["resolved_filter_columns"] = resolved_filter_columns
+        combined["post_verification_removed_count"] = post_verification_removed_count
+        combined["intent_filter_applied"] = True
+        combined["total_dataset_rows"] = int(df.shape[0])
+        combined["predicate_rows_matched"] = int(verified.shape[0])
+        combined_metrics = dict(combined.get("metrics") or {})
+        final_count = combined.get("total_matches", combined_metrics.get("matched_row_count", 0))
+        combined_metrics.update(predicate_metrics)
+        combined_metrics["rows_matched"] = final_count
+        combined_metrics["matched_row_count"] = final_count
+        combined_metrics["predicate_rows_matched"] = int(verified.shape[0])
+        combined_metrics["total_rows"] = int(df.shape[0])
+        combined["metrics"] = combined_metrics
+        combined["warnings"] = list(combined.get("warnings") or []) + warnings
+        combined["summary"] = f"{combined.get('answer_label') or 'Alumni matching criteria'}: {final_count}"
+        return to_json_safe(combined)
+
+    return_columns, return_warnings = _predicate_return_columns(
+        verified,
+        params.get("return_columns") or params.get("display_columns"),
+        resolved_filter_columns,
+        include_matching_email=bool(email_predicates),
+    )
+    warnings.extend(return_warnings)
+    limit = _limit(params.get("limit"), default=MAX_LIMIT)
+    displayed = verified.head(limit)
+    rows = [
+        {
+            _canonical_display_header(column): _row_value_for_display(row, column)
+            for column in return_columns
+        }
+        for _, row in displayed.iterrows()
+    ]
+    display_columns = [_canonical_display_header(column) for column in return_columns]
+    rows_returned = len(rows)
+    predicate_metrics.update(
+        {
+            "rows_returned": rows_returned,
+            "returned_row_count": rows_returned,
+            "displayed_count": rows_returned,
+            "display_limit": limit,
+            "display_columns": display_columns,
+        }
+    )
+    summary = f"Found {int(verified.shape[0])} alumni matching the exact criteria."
+    return _ok_result(
+        "filter_predicates",
+        summary,
+        display_columns,
+        rows,
+        predicate_metrics,
+        assumptions,
+        warnings,
+        is_filtered=True,
+        extras={
+            "intent_filter_applied": True,
+            "predicate_logic": logic,
+            "predicate_count": len(predicates),
+            "resolved_filter_columns": resolved_filter_columns,
+            "post_verification_removed_count": post_verification_removed_count,
+            "displayed_count": rows_returned,
+            "display_columns": display_columns,
+        },
+    )
+
+
+def _validate_composite_people_filter_params(params):
+    if not isinstance(params, dict):
+        return False, "composite_people_filter params must be an object."
+    constraint_logic = str(params.get("constraint_logic") or "and").casefold()
+    if constraint_logic not in {"and", "or"}:
+        return False, f"Unsupported composite filter logic '{constraint_logic}'."
+    people_operation = params.get("people_operation")
+    if not isinstance(people_operation, dict) or people_operation.get("type") != "contains_any":
+        return False, "A composite people filter requires one approved contains_any people operation."
+    people_params = people_operation.get("params")
+    if not isinstance(people_params, dict) or people_params.get("filter_mode") not in {"people", "tech_people"}:
+        return False, "The fuzzy clause must use the approved people-classifier path."
+    predicate_params = {
+        "logic": params.get("logic") or "and",
+        "predicates": params.get("predicates"),
+    }
+    return validate_filter_predicate_params(predicate_params)
+
+
+def _op_composite_people_filter(df, params, assumptions):
+    """Compose full-dataframe fuzzy buckets with an exact predicate row set.
+
+    Fuzzy classification intentionally runs first on the complete dataframe.
+    Exact predicates are evaluated independently, and the two results are
+    combined only through temporary stable row IDs that never cross the API
+    sanitization boundary.
+    """
+    valid, error = _validate_composite_people_filter_params(params)
+    if not valid:
+        return _error_result("composite_people_filter", error)
+    predicate_valid, predicate_error = validate_filter_predicate_params(
+        {"logic": params.get("logic") or "and", "predicates": params.get("predicates")},
+        available_columns=df.columns,
+    )
+    if not predicate_valid:
+        return _error_result("composite_people_filter", predicate_error)
+
+    working = df.copy()
+    internal_column = _available_internal_row_id_column(working)
+    working[internal_column] = list(range(len(working)))
+    row_by_id = {int(row[internal_column]): row for _, row in working.iterrows()}
+
+    predicates = []
+    for raw in params.get("predicates") or []:
+        predicate = dict(raw)
+        predicate["columns"] = list(predicate.get("columns") or predicate.get("resolved_columns") or [])
+        predicates.append(predicate)
+    predicate_logic = str(params.get("logic") or "and").casefold()
+    constraint_logic = str(params.get("constraint_logic") or "and").casefold()
+    email_predicates = [
+        predicate
+        for predicate in predicates
+        if predicate.get("operator") in {"email_domain_in", "email_domain_not_in"}
+    ]
+    filter_columns = list(
+        dict.fromkeys(column for predicate in predicates for column in predicate.get("columns") or [])
+    )
+
+    people_operation = params["people_operation"]
+    people_params = dict(people_operation.get("params") or {})
+    people_params["_internal_row_id_column"] = internal_column
+    if email_predicates:
+        requested = list(people_params.get("display_columns") or people_params.get("return_columns") or [])
+        requested = [column for column in requested if column not in set(filter_columns)]
+        people_params["display_columns"] = requested
+        people_params["return_columns"] = requested
+
+    # This call is byte-for-byte the standalone classifier path apart from the
+    # hidden row ID projection.  It sees the full dataframe and retains the same
+    # classifier budget, candidate generation, and bucket decisions.
+    people_result = _op_contains_any(working, people_params, assumptions)
+    if people_result.get("status") != "ok" or people_result.get("intent") != PEOPLE_FILTER_INTENT:
+        return _error_result(
+            "composite_people_filter",
+            people_result.get("error") or "The fuzzy clause did not produce a valid people-filter result.",
+            people_result.get("warnings") or [],
+        )
+
+    exact_ids = set()
+    matching_email_by_id = {}
+    primary_ids = []
+    for _, row in working.iterrows():
+        if row_satisfies_predicate_group(row, predicate_logic, predicates):
+            row_id = int(row[internal_column])
+            primary_ids.append(row_id)
+    verification_removed = 0
+    for row_id in primary_ids:
+        row = row_by_id[row_id]
+        if not row_satisfies_predicate_group(row, predicate_logic, predicates):
+            verification_removed += 1
+            continue
+        exact_ids.add(row_id)
+        if email_predicates:
+            matching_email_by_id[row_id] = list(
+                dict.fromkeys(
+                    address
+                    for predicate in email_predicates
+                    for address in matching_email_addresses(row, predicate)
+                )
+            )
+
+    source_buckets = {
+        "direct": list(people_result.get("direct_rows") or people_result.get("rows") or []),
+        "adjacent": list(people_result.get("adjacent_rows") or []),
+        "uncertain": list(people_result.get("uncertain_rows") or []),
+        "counted": list(people_result.get("rows") or []),
+    }
+    source_ids = {
+        key: {_internal_result_row_id(row) for row in rows if _internal_result_row_id(row) is not None}
+        for key, rows in source_buckets.items()
+    }
+
+    if constraint_logic == "and":
+        combined_buckets = {
+            key: [row for row in rows if _internal_result_row_id(row) in exact_ids]
+            for key, rows in source_buckets.items()
+        }
+    else:
+        exact_rows = _project_exact_rows_for_people(
+            working,
+            exact_ids,
+            people_params,
+            internal_column,
+        )
+        direct = _union_internal_rows(source_buckets["direct"], exact_rows)
+        direct_ids = {_internal_result_row_id(row) for row in direct}
+        adjacent = [row for row in source_buckets["adjacent"] if _internal_result_row_id(row) not in direct_ids]
+        adjacent_ids = {_internal_result_row_id(row) for row in adjacent}
+        uncertain = [
+            row
+            for row in source_buckets["uncertain"]
+            if _internal_result_row_id(row) not in direct_ids | adjacent_ids
+        ]
+        counted = _union_internal_rows(source_buckets["counted"], exact_rows)
+        combined_buckets = {
+            "direct": direct,
+            "adjacent": adjacent,
+            "uncertain": uncertain,
+            "counted": counted,
+        }
+
+    sort_spec = params.get("sort") if isinstance(params.get("sort"), dict) else None
+    if sort_spec and sort_spec.get("column") in working.columns:
+        ascending = str(sort_spec.get("direction") or "desc").casefold() in {"asc", "ascending"}
+        sorted_frame = _sort_dataframe(working, sort_spec["column"], ascending)
+        sort_rank = {int(row[internal_column]): rank for rank, (_, row) in enumerate(sorted_frame.iterrows())}
+        for rows in combined_buckets.values():
+            rows.sort(key=lambda row: sort_rank.get(_internal_result_row_id(row), len(sort_rank)))
+
+    # Independently verify bucket membership and the composite Boolean
+    # expression before any private IDs are removed or rows are presented.
+    verified_buckets = {}
+    for category, rows in combined_buckets.items():
+        verified_rows = []
+        source_members = source_ids[category]
+        for row in rows:
+            row_id = _internal_result_row_id(row)
+            fuzzy_match = row_id in source_members
+            exact_match = row_id in exact_ids
+            expression_match = (
+                fuzzy_match and exact_match
+                if constraint_logic == "and"
+                else fuzzy_match or exact_match
+            )
+            if row_id is None or not expression_match:
+                verification_removed += 1
+                continue
+            source_row = row_by_id.get(row_id)
+            if exact_match and source_row is not None and not row_satisfies_predicate_group(
+                source_row, predicate_logic, predicates
+            ):
+                verification_removed += 1
+                continue
+            verified_rows.append(row)
+        verified_buckets[category] = verified_rows
+
+    visible_columns = list(people_result.get("visible_columns") or people_result.get("columns") or [])
+    if email_predicates and "Matching Email" not in visible_columns:
+        if "LinkedIn URL" in visible_columns:
+            visible_columns.insert(visible_columns.index("LinkedIn URL"), "Matching Email")
+        else:
+            visible_columns.append("Matching Email")
+
+    for category, rows in list(verified_buckets.items()):
+        visible_rows = []
+        for row in rows:
+            row_id = _internal_result_row_id(row)
+            visible_row = dict(row)
+            if email_predicates:
+                visible_row["Matching Email"] = "; ".join(matching_email_by_id.get(row_id, []))
+            visible_row.pop(INTERNAL_ROW_ID_KEY, None)
+            visible_rows.append(visible_row)
+        # A direct row is also present in the counted bucket.  Copying here
+        # prevents stripping its private ID in one bucket from changing the
+        # projection (especially Matching Email) in another bucket.
+        verified_buckets[category] = visible_rows
+
+    direct_rows = verified_buckets["direct"]
+    adjacent_rows = verified_buckets["adjacent"]
+    uncertain_rows = verified_buckets["uncertain"]
+    counted_rows = verified_buckets["counted"]
+    direct_count = len(direct_rows)
+    adjacent_count = len(adjacent_rows)
+    uncertain_count = len(uncertain_rows)
+    total_matches = len(counted_rows)
+    limit = _limit(params.get("limit"), default=_limit(people_params.get("limit"), default=DEFAULT_LIMIT))
+    returned_rows = counted_rows[:limit]
+    displayed_count = len(returned_rows)
+
+    row_sections = _composite_row_sections(
+        people_result.get("row_sections") or [],
+        visible_columns,
+        direct_rows,
+        adjacent_rows,
+        uncertain_rows,
+        limit=limit,
+    )
+    warnings = [
+        warning
+        for warning in (people_result.get("warnings") or [])
+        if not isinstance(warning, dict) or warning.get("type") != "display_limit_applied"
+    ]
+    if displayed_count < total_matches:
+        warnings.append(
+            _warning(
+                "display_limit_applied",
+                f"Showing {displayed_count} of {total_matches} matching alumni because the display limit is {limit}.",
+                resolved_to={
+                    "display_limit": limit,
+                    "total_matches": total_matches,
+                    "displayed_count": displayed_count,
+                },
+            )
+        )
+    if verification_removed:
+        warnings.append(
+            _warning(
+                "post_verification_removal",
+                "Some composed rows failed deterministic result verification and were removed.",
+                resolved_to={"removed_count": verification_removed},
+            )
+        )
+
+    metrics = dict(people_result.get("metrics") or {})
+    metrics.update(
+        {
+            "total_dataset_rows": int(df.shape[0]),
+            "total_rows": int(df.shape[0]),
+            "total_considered": int(df.shape[0]),
+            "total_matches": total_matches,
+            "direct_count": direct_count,
+            "direct_match_count": direct_count,
+            "adjacent_count": adjacent_count,
+            "adjacent_not_counted_count": adjacent_count,
+            "uncertain_count": uncertain_count,
+            "uncertain_not_counted_count": uncertain_count,
+            "matched_row_count": total_matches,
+            "rows_matched": total_matches,
+            "returned_row_count": displayed_count,
+            "rows_returned": displayed_count,
+            "scored_result_count": displayed_count,
+            "verified_match_count": total_matches,
+            "displayed_count": displayed_count,
+            "final_display_count": displayed_count,
+            "display_limit": limit,
+            "surfaced_count": direct_count + adjacent_count + uncertain_count,
+            "display_columns": visible_columns,
+            "predicate_rows_matched": len(exact_ids),
+            "exact_predicate_match_count": len(exact_ids),
+            "predicate_count": len(predicates),
+            "predicate_logic": predicate_logic,
+            "constraint_logic": constraint_logic,
+            "resolved_filter_columns": filter_columns,
+            "invalid_email_value_count": _invalid_email_row_count(df, email_predicates),
+            "post_verification_removed_count": verification_removed,
+            "fuzzy_direct_count_before_predicates": int(people_result.get("direct_count") or 0),
+            "fuzzy_adjacent_count_before_predicates": int(people_result.get("adjacent_count") or 0),
+            "fuzzy_uncertain_count_before_predicates": int(people_result.get("uncertain_count") or 0),
+            "direct_count_after_intersection": direct_count,
+            "adjacent_count_after_intersection": adjacent_count,
+            "uncertain_count_after_intersection": uncertain_count,
+        }
+    )
+
+    answer_label = people_result.get("answer_label") or PEOPLE_FILTER_ANSWER_LABEL
+    summary = f"{answer_label}: {total_matches}"
+    if row_sections:
+        summary = (
+            f"Found {direct_count} direct matches out of {int(df.shape[0])} alumni after exact filtering. "
+            f"Also showing {adjacent_count} adjacent matches and {uncertain_count} uncertain possible matches."
+        )
+
+    extras = {
+        key: value
+        for key, value in people_result.items()
+        if key
+        not in {
+            "operation_type",
+            "status",
+            "summary",
+            "columns",
+            "rows",
+            "metrics",
+            "warnings",
+            "assumptions",
+            "direct_rows",
+            "adjacent_rows",
+            "uncertain_rows",
+            "row_sections",
+            "debug",
+        }
+    }
+    extras.update(
+        {
+            "intent": PEOPLE_FILTER_INTENT,
+            "operation_type": "composite_people_filter",
+            "total_dataset_rows": int(df.shape[0]),
+            "total_matches": total_matches,
+            "direct_count": direct_count,
+            "adjacent_count": adjacent_count,
+            "uncertain_count": uncertain_count,
+            "displayed_count": displayed_count,
+            "display_limit": limit,
+            "scored_result_count": displayed_count,
+            "verified_match_count": total_matches,
+            "surfaced_count": direct_count + adjacent_count + uncertain_count,
+            "direct_rows": direct_rows,
+            "adjacent_rows": adjacent_rows,
+            "uncertain_rows": uncertain_rows,
+            "row_sections": row_sections,
+            "visible_columns": visible_columns,
+            "display_columns": visible_columns,
+            "predicate_rows_matched": len(exact_ids),
+            "exact_predicate_match_count": len(exact_ids),
+            "predicate_count": len(predicates),
+            "predicate_logic": predicate_logic,
+            "constraint_logic": constraint_logic,
+            "resolved_filter_columns": filter_columns,
+            "post_verification_removed_count": verification_removed,
+            "fuzzy_direct_count_before_predicates": int(people_result.get("direct_count") or 0),
+            "fuzzy_adjacent_count_before_predicates": int(people_result.get("adjacent_count") or 0),
+            "fuzzy_uncertain_count_before_predicates": int(people_result.get("uncertain_count") or 0),
+            "direct_count_after_intersection": direct_count,
+            "adjacent_count_after_intersection": adjacent_count,
+            "uncertain_count_after_intersection": uncertain_count,
+        }
+    )
+    return _ok_result(
+        "composite_people_filter",
+        summary,
+        visible_columns,
+        returned_rows,
+        metrics,
+        assumptions,
+        warnings,
+        is_filtered=True,
+        extras=extras,
+    )
+
+
+def _available_internal_row_id_column(df):
+    column = INTERNAL_ROW_ID_KEY
+    while column in df.columns:
+        column = "_" + column
+    return column
+
+
+def _internal_result_row_id(row):
+    if not isinstance(row, dict):
+        return None
+    value = row.get(INTERNAL_ROW_ID_KEY)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _project_exact_rows_for_people(df, exact_ids, people_params, internal_column):
+    specs = _people_display_column_specs(df, people_params)
+    rows = []
+    seen_people = set()
+    for index, row in df.iterrows():
+        row_id = int(row[internal_column])
+        if row_id not in exact_ids:
+            continue
+        person_key = _person_surface_key(df, row, index)
+        if person_key in seen_people:
+            continue
+        seen_people.add(person_key)
+        display_row = {spec["header"]: _row_value_for_display(row, spec["source"]) for spec in specs}
+        display_row[INTERNAL_ROW_ID_KEY] = row_id
+        rows.append(display_row)
+    return rows
+
+
+def _union_internal_rows(first, second):
+    rows = []
+    seen = set()
+    for row in list(first or []) + list(second or []):
+        row_id = _internal_result_row_id(row)
+        if row_id is None or row_id in seen:
+            continue
+        seen.add(row_id)
+        rows.append(dict(row))
+    return rows
+
+
+def _composite_row_sections(
+    source_sections,
+    columns,
+    direct_rows,
+    adjacent_rows,
+    uncertain_rows,
+    *,
+    limit,
+):
+    if not source_sections:
+        return []
+    rows_by_category = {
+        "direct": direct_rows,
+        "adjacent": adjacent_rows,
+        "uncertain": uncertain_rows,
+    }
+    sections = []
+    source_by_category = {
+        str(section.get("category")): section
+        for section in source_sections
+        if isinstance(section, dict)
+    }
+    for category in ["direct", "adjacent", "uncertain"]:
+        rows = rows_by_category[category]
+        source = source_by_category.get(category)
+        if source is None or (category != "direct" and not rows):
+            continue
+        section = dict(source)
+        section["columns"] = list(columns)
+        section["rows"] = rows[:limit]
+        section["count"] = len(rows)
+        if len(rows) > limit:
+            section["caption"] = " ".join(
+                item
+                for item in [
+                    str(section.get("caption") or "").strip(),
+                    f"Showing {limit} of {len(rows)} rows in this section.",
+                ]
+                if item
+            )
+        sections.append(section)
+    return sections
 
 
 def _op_search_text(df, params, assumptions):
@@ -999,6 +1623,9 @@ def _people_filter_result(df, columns, terms, params, assumptions, warnings=None
             spec["header"]: _row_value_for_display(row, spec["source"])
             for spec in display_specs
         }
+        internal_row_id_column = params.get("_internal_row_id_column")
+        if internal_row_id_column in row.index:
+            display_row[INTERNAL_ROW_ID_KEY] = _row_value_for_display(row, internal_row_id_column)
         debug_row = {
             "row_index": int(index) if isinstance(index, (int, np.integer)) else str(index),
             "status": match["status"],
@@ -1423,6 +2050,44 @@ def _row_value_for_display(row, column):
     if _is_missing_value(value):
         return ""
     return value
+
+
+def _predicate_return_columns(df, requested, filter_columns, *, include_matching_email):
+    columns, warnings = _resolve_columns(df, requested, required=False)
+    if include_matching_email:
+        columns = [column for column in columns if column not in set(filter_columns)]
+    if not columns:
+        for semantic in ["first_name", "last_name", "person_name", "linkedin_url"]:
+            column = _resolved_display_column(df, semantic)
+            if column and column not in columns:
+                columns.append(column)
+    if not columns:
+        columns = [str(column) for column in df.columns if str(column) not in set(filter_columns)][:4]
+    if include_matching_email and "Matching Email" in df.columns and "Matching Email" not in columns:
+        # Keep the derived qualifying address beside identity fields and before
+        # LinkedIn, which remains the final person-link column.
+        linkedin = _resolved_display_column(df, "linkedin_url")
+        if linkedin in columns:
+            columns.insert(columns.index(linkedin), "Matching Email")
+        else:
+            columns.append("Matching Email")
+    return columns, warnings
+
+
+def _invalid_email_row_count(df, email_predicates):
+    if not email_predicates:
+        return 0
+    columns = list(
+        dict.fromkeys(column for predicate in email_predicates for column in predicate.get("columns") or [])
+    )
+    invalid = 0
+    for _, row in df.iterrows():
+        values = [row[column] for column in columns]
+        if any(not _is_missing_value(value) for value in values) and not any(
+            extract_email_tokens(value) for value in values
+        ):
+            invalid += 1
+    return invalid
 
 
 def is_explicit_technical_title(occupation):

@@ -26,6 +26,9 @@ For text-search results, use display_columns/columns exactly as provided. Do not
 searched fields or debug fields to tables.
 For people_filter alumni results, use answer_label with total_matches as the main metric, optionally
 add Showing with displayed_count, and do not present display_limit as the answer.
+For filter_predicates and composite_people_filter results, use the verified matched_row_count
+and provided tables exactly;
+never substitute an unverified source email for Matching Email.
 Do not show match_reason, confidence, classification reason, uncertainty reason, or model rationale
 in the main visible table.
 Prefer tables for row-level results, metrics for counts and summaries, and ranked_list for recommendations.
@@ -50,6 +53,13 @@ Return this JSON shape:
 
 def present_answer(question, plan, operation_results, dataset_context):
     fallback = deterministic_answer_from_results(question, plan, operation_results, dataset_context)
+
+    if any(
+        result.get("operation_type") in {"filter_predicates", "composite_people_filter"}
+        for result in operation_results
+        if isinstance(result, dict)
+    ):
+        return fallback
 
     if ai_service.client is None:
         return fallback

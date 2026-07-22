@@ -93,6 +93,11 @@ Cases live in `evals/cases.jsonl`, one JSON object per line. Common fields:
   classifier cases.
 - `execution`: expected execution behavior, including `model_calls`,
   `llm_classifier`, `final_model_synthesis`, and expected `scored_from`.
+- `composition_reference`: for fuzzy-plus-exact cases, the standalone fuzzy
+  question, standalone exact question, and deterministic `exact_filter` gold
+  rule used to prove the combined bucket sets.
+- `require_composite_filter`: require clause-preserving planning through the
+  approved composite people-filter operation.
 
 Add new cases by appending a JSON object to `cases.jsonl`. Prefer computing
 expected rows from `expected_industry` or `expected_filter` rather than copying
@@ -127,6 +132,14 @@ Industry cases report:
 
 Exact deterministic cases compare the app-reported count and returned rows to
 rows computed directly from the gold CSV.
+
+Composition cases execute the fuzzy and exact reference questions as well as
+the combined question. Returned rows are mapped back to the gold fixture's
+stable `person_id`; direct, adjacent, and uncertain combined buckets must equal
+the corresponding standalone fuzzy bucket intersected with the exact gold row
+set. The scorer also checks recognized/planned clause counts, AND/OR logic,
+operation selection, Matching Email integrity, and deterministic
+post-verification.
 
 Display-rule cases catch forbidden fields such as `expected_industry`,
 `Match Reason`, internal debug fields, and `Notes` when a case forbids them.

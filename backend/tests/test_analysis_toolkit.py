@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from app.services import analysis_toolkit as toolkit
 from app.services.analysis_toolkit import (
     MAX_LIMIT,
     classify_employer_tech_status,
@@ -764,3 +765,354 @@ def test_world_bank_government_employer_is_not_counted_as_finance():
     result = _people_industry_filter(df, "finance")
     assert result["total_matches"] == 0
     assert result["rows"] == []
+
+
+def _email_predicate_operation(quantifier="any", operator="email_domain_not_in"):
+    return {
+        "type": "filter_predicates",
+        "params": {
+            "logic": "and",
+            "predicates": [
+                {
+                    "semantic_column": "email",
+                    "columns": ["email"],
+                    "operator": operator,
+                    "values": ["cornell.edu"],
+                    "include_subdomains": True,
+                    "quantifier": quantifier,
+                    "require_valid_value": True,
+                }
+            ],
+            "return_columns": ["first_name", "email"],
+            "limit": 500,
+        },
+    }
+
+
+def test_filter_predicates_non_cornell_any_returns_exact_verified_rows():
+    df = pd.DataFrame(
+        [
+            {"first_name": "A", "email": "a@cornell.edu"},
+            {"first_name": "B", "email": "b@gmail.com"},
+            {"first_name": "C", "email": "c@alumni.cornell.edu"},
+            {"first_name": "D", "email": "d@cornell.edu; d@yahoo.com"},
+            {"first_name": "E", "email": ""},
+            {"first_name": "F", "email": "not an email"},
+            {"first_name": "G", "email": "g@cornell.edu.com"},
+            {"first_name": "H", "email": "h@cornelltech.io"},
+        ]
+    )
+
+    result = execute_operation(df, _email_predicate_operation())
+
+    assert result["status"] == "ok"
+    assert [row["First Name"] for row in result["rows"]] == ["B", "D", "G", "H"]
+    assert [row["Matching Email"] for row in result["rows"]] == [
+        "b@gmail.com",
+        "d@yahoo.com",
+        "g@cornell.edu.com",
+        "h@cornelltech.io",
+    ]
+    assert result["metrics"]["rows_matched"] == 4
+    assert result["metrics"]["rows_returned"] == 4
+    assert result["metrics"]["post_verification_removed_count"] == 0
+    assert len(result["rows"]) == 4
+
+
+def test_filter_predicates_email_quantifiers_any_all_and_none_are_distinct():
+    df = pd.DataFrame(
+        {
+            "first_name": ["Cornell", "External", "Mixed", "Blank"],
+            "email": [
+                "a@cornell.edu",
+                "b@gmail.com",
+                "c@cornell.edu; c@yahoo.com",
+                "",
+            ],
+        }
+    )
+
+    any_result = execute_operation(df, _email_predicate_operation("any", "email_domain_not_in"))
+    all_result = execute_operation(df, _email_predicate_operation("all", "email_domain_not_in"))
+    none_result = execute_operation(df, _email_predicate_operation("none", "email_domain_in"))
+
+    assert [row["First Name"] for row in any_result["rows"]] == ["External", "Mixed"]
+    assert [row["First Name"] for row in all_result["rows"]] == ["External"]
+    assert [row["First Name"] for row in none_result["rows"]] == ["External"]
+
+
+def test_filter_predicates_rejects_unknown_operator_and_column():
+    df = pd.DataFrame({"email": ["a@gmail.com"]})
+    unknown_operator = _email_predicate_operation()
+    unknown_operator["params"]["predicates"][0]["operator"] = "regex_python"
+    unknown_column = _email_predicate_operation()
+    unknown_column["params"]["predicates"][0]["columns"] = ["Missing Email"]
+
+    first = execute_operation(df, unknown_operator)
+    second = execute_operation(df, unknown_column)
+
+    assert first["status"] == "error"
+    assert "Unsupported" in first["error"]
+    assert second["status"] == "error"
+    assert "not found" in second["error"]
+
+
+def _composite_people_operation(constraint_logic="and", limit=100):
+    people_operation = {
+        "type": "contains_any",
+        "params": {
+            "columns": ["Employer", "Occupation"],
+            "terms": ["software", "engineer", "google", "microsoft", "technology", "tech"],
+            "filter_mode": "people",
+            "people_filter": {
+                "filter_type": "industry",
+                "industry": "tech",
+                "industries": ["tech"],
+                "query_scope": "industry",
+                "capability": "offers_software_engineering_internships",
+            },
+            "display_columns": [
+                "First Name",
+                "Last Name",
+                "Occupation",
+                "Employer",
+                "LinkedIn URL",
+            ],
+            "limit": limit,
+        },
+    }
+    return {
+        "type": "composite_people_filter",
+        "params": {
+            "people_operation": people_operation,
+            "constraint_logic": constraint_logic,
+            "logic": "and",
+            "predicates": [
+                {
+                    "semantic_column": "email",
+                    "columns": ["Email1", "Email2"],
+                    "operator": "email_domain_not_in",
+                    "values": ["cornell.edu"],
+                    "include_subdomains": True,
+                    "quantifier": "any",
+                    "require_valid_value": True,
+                }
+            ],
+            "limit": limit,
+        },
+    }
+
+
+def test_composite_people_filter_is_the_stable_row_intersection_of_standalone_sets():
+    df = pd.DataFrame(
+        [
+            {
+                "First Name": "A",
+                "Last Name": "One",
+                "Employer": "Google",
+                "Occupation": "Software Engineer",
+                "Email1": "a@gmail.com",
+                "Email2": "",
+            },
+            {
+                "First Name": "B",
+                "Last Name": "Two",
+                "Employer": "Google",
+                "Occupation": "Product Manager",
+                "Email1": "b@cornell.edu",
+                "Email2": "",
+            },
+            {
+                "First Name": "C",
+                "Last Name": "Three",
+                "Employer": "High School",
+                "Occupation": "Teacher",
+                "Email1": "c@yahoo.com",
+                "Email2": "",
+            },
+            {
+                "First Name": "D",
+                "Last Name": "Four",
+                "Employer": "Microsoft",
+                "Occupation": "Finance Manager",
+                "Email1": "d@cornell.edu",
+                "Email2": "d@gmail.com",
+            },
+        ]
+    )
+    original = df.copy(deep=True)
+    operation = _composite_people_operation()
+    people_result = execute_operation(df, operation["params"]["people_operation"])
+    exact_result = execute_operation(
+        df,
+        {
+            "type": "filter_predicates",
+            "params": {
+                "logic": "and",
+                "predicates": operation["params"]["predicates"],
+                "return_columns": ["First Name", "Last Name"],
+                "limit": 100,
+            },
+        },
+    )
+    combined = execute_operation(df, operation)
+
+    fuzzy_ids = {row["First Name"] for row in people_result["direct_rows"]}
+    exact_ids = {row["First Name"] for row in exact_result["rows"]}
+    combined_ids = {row["First Name"] for row in combined["direct_rows"]}
+    assert fuzzy_ids == {"A", "B", "D"}
+    assert exact_ids == {"A", "C", "D"}
+    assert combined_ids == fuzzy_ids & exact_ids == {"A", "D"}
+    assert [row["Matching Email"] for row in combined["direct_rows"]] == [
+        "a@gmail.com",
+        "d@gmail.com",
+    ]
+    assert combined["metrics"]["fuzzy_direct_count_before_predicates"] == 3
+    assert combined["metrics"]["exact_predicate_match_count"] == 3
+    assert combined["metrics"]["direct_count_after_intersection"] == 2
+    assert combined["metrics"]["post_verification_removed_count"] == 0
+    assert not any("__alumniai" in str(row).casefold() for row in combined["direct_rows"])
+    assert "debug" not in combined
+    pd.testing.assert_frame_equal(df, original)
+
+
+def test_composite_display_limit_does_not_change_the_verified_match_count():
+    df = pd.DataFrame(
+        {
+            "First Name": ["A", "B"],
+            "Last Name": ["One", "Two"],
+            "Employer": ["Google", "Microsoft"],
+            "Occupation": ["Software Engineer", "Product Manager"],
+            "Email1": ["a@gmail.com", "b@yahoo.com"],
+            "Email2": ["", ""],
+        }
+    )
+
+    result = execute_operation(df, _composite_people_operation(limit=1))
+
+    assert result["total_matches"] == 2
+    assert result["direct_count"] == 2
+    assert len(result["direct_rows"]) == 2
+    assert result["metrics"]["matched_row_count"] == 2
+    assert result["metrics"]["returned_row_count"] == 1
+    assert result["metrics"]["displayed_count"] == 1
+    assert len(result["rows"]) == 1
+    assert any(warning.get("type") == "display_limit_applied" for warning in result["warnings"])
+
+
+def test_composite_people_filter_intersects_direct_adjacent_and_uncertain_buckets(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "First Name": list("ABCDEF"),
+            "Last Name": ["Person"] * 6,
+            "Occupation": ["Role"] * 6,
+            "Employer": ["Company"] * 6,
+            "Email1": [
+                "a@gmail.com",
+                "b@cornell.edu",
+                "c@yahoo.com",
+                "d@alumni.cornell.edu",
+                "e@cornell.edu.com",
+                "f@cs.cornell.edu",
+            ],
+            "Email2": [""] * 6,
+        }
+    )
+
+    def fake_people_filter(working, params, assumptions):
+        internal_column = params["_internal_row_id_column"]
+
+        def projected(row_id):
+            row = working.iloc[row_id]
+            return {
+                "First Name": row["First Name"],
+                "Last Name": row["Last Name"],
+                "Occupation": row["Occupation"],
+                "Employer": row["Employer"],
+                toolkit.INTERNAL_ROW_ID_KEY: int(row[internal_column]),
+            }
+
+        direct = [projected(0), projected(1)]
+        adjacent = [projected(2), projected(3)]
+        uncertain = [projected(4), projected(5)]
+        return {
+            "status": "ok",
+            "intent": "people_filter",
+            "operation_type": "contains_any",
+            "rows": direct,
+            "direct_rows": direct,
+            "adjacent_rows": adjacent,
+            "uncertain_rows": uncertain,
+            "direct_count": 2,
+            "adjacent_count": 2,
+            "uncertain_count": 2,
+            "total_matches": 2,
+            "visible_columns": ["First Name", "Last Name", "Occupation", "Employer"],
+            "columns": ["First Name", "Last Name", "Occupation", "Employer"],
+            "metrics": {},
+            "warnings": [],
+            "row_sections": [],
+        }
+
+    monkeypatch.setattr(toolkit, "_op_contains_any", fake_people_filter)
+
+    result = execute_operation(df, _composite_people_operation())
+
+    assert [row["First Name"] for row in result["direct_rows"]] == ["A"]
+    assert [row["First Name"] for row in result["adjacent_rows"]] == ["C"]
+    assert [row["First Name"] for row in result["uncertain_rows"]] == ["E"]
+    assert result["direct_count"] == 1
+    assert result["adjacent_count"] == 1
+    assert result["uncertain_count"] == 1
+    assert result["metrics"]["post_verification_removed_count"] == 0
+    for bucket in ["direct_rows", "adjacent_rows", "uncertain_rows"]:
+        assert all(row["Matching Email"] for row in result[bucket])
+        assert all(toolkit.INTERNAL_ROW_ID_KEY not in row for row in result[bucket])
+
+
+def test_composite_people_filter_or_uses_stable_row_union(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Fuzzy", "Exact", "Neither"],
+            "Last Name": ["A", "B", "C"],
+            "Occupation": ["Role"] * 3,
+            "Employer": ["Company"] * 3,
+            "Email1": ["f@cornell.edu", "e@gmail.com", "n@cornell.edu"],
+            "Email2": [""] * 3,
+        }
+    )
+
+    def fake_people_filter(working, params, assumptions):
+        internal_column = params["_internal_row_id_column"]
+        row = {
+            "First Name": "Fuzzy",
+            "Last Name": "A",
+            "Occupation": "Role",
+            "Employer": "Company",
+            toolkit.INTERNAL_ROW_ID_KEY: int(working.iloc[0][internal_column]),
+        }
+        return {
+            "status": "ok",
+            "intent": "people_filter",
+            "rows": [row],
+            "direct_rows": [row],
+            "adjacent_rows": [],
+            "uncertain_rows": [],
+            "direct_count": 1,
+            "adjacent_count": 0,
+            "uncertain_count": 0,
+            "total_matches": 1,
+            "visible_columns": ["First Name", "Last Name", "Occupation", "Employer"],
+            "columns": ["First Name", "Last Name", "Occupation", "Employer"],
+            "metrics": {},
+            "warnings": [],
+            "row_sections": [],
+        }
+
+    monkeypatch.setattr(toolkit, "_op_contains_any", fake_people_filter)
+
+    result = execute_operation(df, _composite_people_operation(constraint_logic="or"))
+
+    assert {row["First Name"] for row in result["direct_rows"]} == {"Fuzzy", "Exact"}
+    assert result["total_matches"] == 2
+    assert result["constraint_logic"] == "or"

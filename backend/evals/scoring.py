@@ -7,6 +7,9 @@ from typing import Any
 
 import pandas as pd
 
+from app.services.email_utils import extract_email_tokens
+from app.services.intent_filter import evaluate_predicate_row
+
 
 EVAL_ONLY_PREFIXES = ("expected_", "eval_")
 EVAL_ONLY_COLUMNS = {"expected_industry"}
@@ -230,6 +233,42 @@ def score_case(
     precision_threshold = float(case.get("precision_threshold", DEFAULT_PRECISION_THRESHOLD))
     recall_threshold = float(case.get("recall_threshold", DEFAULT_RECALL_THRESHOLD))
 
+    raw_response = normalized_response.get("raw_response") if isinstance(normalized_response.get("raw_response"), dict) else {}
+    if case.get("expected_operation_type"):
+        operation = raw_response.get("operation") if isinstance(raw_response.get("operation"), dict) else {}
+        if operation.get("type") != case.get("expected_operation_type"):
+            _add_failure(
+                failures,
+                failure_categories,
+                "predicate_execution",
+                f"Expected operation {case.get('expected_operation_type')}, got {operation.get('type') or 'none'}.",
+            )
+    if case.get("require_intent_filter"):
+        trace = raw_response.get("intent_filter_trace") if isinstance(raw_response.get("intent_filter_trace"), dict) else {}
+        if not trace.get("intent_filter_applied") or not trace.get("intent_filter_valid"):
+            _add_failure(
+                failures,
+                failure_categories,
+                "intent_filter_validation",
+                "The typed intent filter was not applied successfully.",
+            )
+        if int(trace.get("post_verification_removed_count") or 0) != 0:
+            _add_failure(
+                failures,
+                failure_categories,
+                "result_verification",
+                "Typed-predicate post-verification removed one or more rows.",
+            )
+
+    if case.get("require_composite_filter"):
+        _score_composite_contract(
+            case,
+            normalized_response,
+            gold_df,
+            failures,
+            failure_categories,
+        )
+
     if hallucinated_names:
         _add_failure(
             failures,
@@ -282,7 +321,7 @@ def score_case(
             _add_failure(
                 failures,
                 failure_categories,
-                "row_selection",
+                _selection_failure_category(case),
                 "Returned row names did not exactly match the expected filtered rows.",
             )
 
@@ -310,7 +349,11 @@ def score_case(
         _add_failure(
             failures,
             failure_categories,
-            "response_parsing" if normalized_response.get("lower_confidence_extraction") else "forbidden_columns",
+            (
+                "response_parsing"
+                if normalized_response.get("lower_confidence_extraction")
+                else ("column_resolution" if case.get("require_intent_filter") else "forbidden_columns")
+            ),
             f"Missing required displayed columns: {', '.join(missing_columns)}.",
         )
 
@@ -342,6 +385,16 @@ def score_case(
                 "Columns forbidden unless asked were present: "
                 + ", ".join(present_forbidden_unless_asked)
                 + ".",
+            )
+
+    if case.get("require_matching_email"):
+        invalid_matching_rows = _rows_without_required_matching_email(rows, case)
+        if invalid_matching_rows:
+            _add_failure(
+                failures,
+                failure_categories,
+                "result_verification",
+                f"{invalid_matching_rows} returned rows lacked a qualifying Matching Email value.",
             )
 
     required_if_available = [
@@ -731,6 +784,10 @@ def _add_failure(failures: list[str], categories: set[str], category: str, messa
 
 
 def _selection_failure_category(case: dict[str, Any]) -> str:
+    if case.get("category") == "filter_composition" or case.get("require_composite_filter"):
+        return "filter_composition"
+    if case.get("category") == "intent_filter" or case.get("require_intent_filter"):
+        return "intent_filter"
     if case.get("category") in {"industry_classification", "messy_data"} or case.get("expected_industry"):
         return "classification"
     if case.get("eval_kind") == "direct_classifier":
@@ -940,8 +997,21 @@ def _filter_mask(df: pd.DataFrame, spec: Any) -> pd.Series:
     if "not" in spec:
         return ~_filter_mask(df, spec["not"])
 
-    column = _resolve_gold_column(df, spec.get("column"))
     op = str(spec.get("op") or "equals").casefold()
+    if op in {"email_domain_in", "email_domain_not_in"}:
+        requested_columns = spec.get("columns") or [spec.get("column") or "email"]
+        columns = [_resolve_gold_column(df, column) for column in requested_columns]
+        predicate = {
+            "columns": columns,
+            "operator": op,
+            "values": list(spec.get("values") or [spec.get("value") or "cornell.edu"]),
+            "include_subdomains": bool(spec.get("include_subdomains", True)),
+            "quantifier": str(spec.get("quantifier") or "any").casefold(),
+            "require_valid_value": bool(spec.get("require_valid_value", True)),
+        }
+        return df.apply(lambda row: evaluate_predicate_row(row, predicate), axis=1).fillna(False)
+
+    column = _resolve_gold_column(df, spec.get("column"))
     value = spec.get("value")
     series = df[column]
 
@@ -955,6 +1025,9 @@ def _filter_mask(df: pd.DataFrame, spec: Any) -> pd.Series:
         return (~series.astype("string").str.strip().str.casefold().eq(str(value).strip().casefold())).fillna(False)
     if op == "contains":
         return series.astype("string").str.casefold().str.contains(str(value).casefold(), na=False, regex=False)
+    if op == "not_contains":
+        values = series.astype("string")
+        return (~values.str.casefold().str.contains(str(value).casefold(), na=False, regex=False) & ~_missing_mask(series)).fillna(False)
     if op == "in":
         values = {str(item).strip().casefold() for item in value or []}
         return series.astype("string").str.strip().str.casefold().isin(values).fillna(False)
@@ -1097,7 +1170,232 @@ def _match_gold_rows_for_returned_row(row: dict[str, Any], gold_df: pd.DataFrame
         if not title_matches.empty:
             matches = title_matches
 
+    matching_email = _value_for_alias(row, {"matching email", "matching_email"})
+    matching_addresses = {
+        token["address"].casefold() for token in extract_email_tokens(matching_email)
+    }
+    if matching_addresses:
+        email_columns = [column for column in gold_df.columns if "email" in _normalize_column(column)]
+        email_matches = matches[
+            matches.apply(
+                lambda item: bool(
+                    matching_addresses
+                    & {
+                        token["address"].casefold()
+                        for column in email_columns
+                        for token in extract_email_tokens(item.get(column))
+                    }
+                ),
+                axis=1,
+            )
+        ]
+        if not email_matches.empty:
+            matches = email_matches
+
     return matches
+
+
+def _score_composite_contract(
+    case: dict[str, Any],
+    normalized_response: dict[str, Any],
+    gold_df: pd.DataFrame,
+    failures: list[str],
+    categories: set[str],
+) -> None:
+    """Score clause preservation and stable-ID set algebra for composition cases."""
+    raw = normalized_response.get("raw_response")
+    raw = raw if isinstance(raw, dict) else {}
+    operation = raw.get("operation") if isinstance(raw.get("operation"), dict) else {}
+    if operation.get("type") != "composite_people_filter":
+        _add_failure(
+            failures,
+            categories,
+            "filter_composition",
+            "The combined query did not select composite_people_filter.",
+        )
+
+    trace = raw.get("intent_filter_trace") if isinstance(raw.get("intent_filter_trace"), dict) else {}
+    required_trace = {
+        "has_fuzzy_people_filter": True,
+        "has_exact_row_predicates": True,
+        "is_composite_filter": True,
+        "fuzzy_clause_dropped": False,
+    }
+    for field, expected in required_trace.items():
+        if trace.get(field) is not expected:
+            _add_failure(
+                failures,
+                categories,
+                "intent_understanding" if field != "fuzzy_clause_dropped" else "filter_composition",
+                f"Composite trace field {field} was {trace.get(field)!r}, expected {expected!r}.",
+            )
+    expected_logic = str(case.get("expected_constraint_logic") or "and").casefold()
+    if str(trace.get("constraint_logic") or "").casefold() != expected_logic:
+        _add_failure(
+            failures,
+            categories,
+            "filter_composition",
+            f"Expected source constraint logic {expected_logic}, got {trace.get('constraint_logic') or 'none'}.",
+        )
+    recognized = _parse_int(trace.get("recognized_constraint_count"))
+    planned = _parse_int(trace.get("planned_constraint_count"))
+    if recognized is None or planned is None or recognized != planned or recognized < 2:
+        _add_failure(
+            failures,
+            categories,
+            "filter_composition",
+            f"Recognized/planned constraint counts were {recognized}/{planned}; no recognized clause may be dropped.",
+        )
+
+    metrics = normalized_response.get("metrics") or {}
+    if int(metrics.get("post_verification_removed_count") or 0) != 0:
+        _add_failure(
+            failures,
+            categories,
+            "result_verification",
+            "Composite post-verification removed one or more rows.",
+        )
+    buckets = normalized_response.get("bucket_rows") or {}
+    for category in ("direct", "adjacent", "uncertain"):
+        observed_count = len(buckets.get(category) or [])
+        metric_count = _parse_int(metrics.get(f"{category}_count_after_intersection"))
+        if metric_count is None:
+            metric_count = _parse_int(metrics.get(f"{category}_count"))
+        if metric_count is not None and metric_count != observed_count:
+            _add_failure(
+                failures,
+                categories,
+                "count_mismatch",
+                f"Composite {category} count was {metric_count}, but the bucket contained {observed_count} rows.",
+            )
+
+    reference = case.get("_composition_reference")
+    spec = case.get("composition_reference")
+    if not isinstance(reference, dict) or not isinstance(spec, dict):
+        _add_failure(
+            failures,
+            categories,
+            "filter_composition",
+            "Composite reference queries were not executed.",
+        )
+        return
+    fuzzy = reference.get("fuzzy") if isinstance(reference.get("fuzzy"), dict) else {}
+    exact = reference.get("exact") if isinstance(reference.get("exact"), dict) else {}
+    exact_filter = spec.get("exact_filter")
+    if not isinstance(exact_filter, dict):
+        _add_failure(
+            failures,
+            categories,
+            "filter_composition",
+            "Composite eval is missing its deterministic exact_filter gold rule.",
+        )
+        return
+
+    stable_column = "person_id" if "person_id" in gold_df.columns else None
+    exact_gold = gold_df[_filter_mask(gold_df, exact_filter)]
+    exact_gold_ids = _gold_row_ids(exact_gold, stable_column)
+    exact_observed_ids = _gold_ids_for_returned_rows(exact.get("rows") or [], gold_df, stable_column)
+    if exact_observed_ids != exact_gold_ids:
+        _add_failure(
+            failures,
+            categories,
+            "predicate_execution",
+            "The standalone exact reference result did not match its deterministic gold row set.",
+        )
+
+    fuzzy_buckets = fuzzy.get("bucket_rows") or {}
+    combined_buckets = normalized_response.get("bucket_rows") or {}
+    for category in ("direct", "adjacent", "uncertain"):
+        fuzzy_ids = _gold_ids_for_returned_rows(fuzzy_buckets.get(category) or [], gold_df, stable_column)
+        combined_ids = _gold_ids_for_returned_rows(combined_buckets.get(category) or [], gold_df, stable_column)
+        expected_ids = fuzzy_ids & exact_gold_ids if expected_logic == "and" else fuzzy_ids | exact_gold_ids
+        if combined_ids != expected_ids:
+            _add_failure(
+                failures,
+                categories,
+                "filter_composition",
+                f"Combined {category} stable IDs did not equal the standalone {expected_logic} set result.",
+            )
+
+    surfaced = [
+        row
+        for category in ("direct", "adjacent", "uncertain")
+        for row in combined_buckets.get(category) or []
+    ]
+    invalid_matching = (
+        _rows_without_required_matching_email(surfaced, {"expected_filter": exact_filter})
+        if _filter_contains_email_domain(exact_filter)
+        else 0
+    )
+    if invalid_matching:
+        _add_failure(
+            failures,
+            categories,
+            "result_verification",
+            f"{invalid_matching} composite bucket row(s) lacked a qualifying Matching Email.",
+        )
+
+
+def _gold_row_ids(frame: pd.DataFrame, stable_column: str | None) -> set[str]:
+    if stable_column:
+        return {str(value) for value in frame[stable_column].tolist()}
+    return {str(index) for index in frame.index.tolist()}
+
+
+def _gold_ids_for_returned_rows(
+    rows: list[dict[str, Any]],
+    gold_df: pd.DataFrame,
+    stable_column: str | None,
+) -> set[str]:
+    identities: set[str] = set()
+    for row in rows:
+        matches = _match_gold_rows_for_returned_row(row, gold_df)
+        identities.update(_gold_row_ids(matches, stable_column))
+    return identities
+
+
+def _filter_contains_email_domain(spec: Any) -> bool:
+    if not isinstance(spec, dict):
+        return False
+    for key in ("all", "any"):
+        if isinstance(spec.get(key), list) and any(_filter_contains_email_domain(child) for child in spec[key]):
+            return True
+    if isinstance(spec.get("not"), dict):
+        return _filter_contains_email_domain(spec["not"])
+    return str(spec.get("op") or "").casefold() in {"email_domain_in", "email_domain_not_in"}
+
+
+def _rows_without_required_matching_email(rows: list[dict[str, Any]], case: dict[str, Any]) -> int:
+    invalid = 0
+    expected_filter = case.get("expected_filter") or {}
+    for row in rows:
+        value = _value_for_alias(row, {"matching email", "matching_email"})
+        if not extract_email_tokens(value) or not _matching_email_satisfies(expected_filter, value):
+            invalid += 1
+    return invalid
+
+
+def _matching_email_satisfies(spec: Any, value: Any) -> bool:
+    if not isinstance(spec, dict):
+        return True
+    if "all" in spec:
+        return all(_matching_email_satisfies(child, value) for child in spec["all"])
+    if "any" in spec:
+        return any(_matching_email_satisfies(child, value) for child in spec["any"])
+    if "not" in spec:
+        return not _matching_email_satisfies(spec["not"], value)
+    op = str(spec.get("op") or "").casefold()
+    if op not in {"email_domain_in", "email_domain_not_in"}:
+        return True
+    predicate = {
+        "columns": ["Matching Email"],
+        "operator": op,
+        "values": list(spec.get("values") or [spec.get("value") or "cornell.edu"]),
+        "include_subdomains": bool(spec.get("include_subdomains", True)),
+        "quantifier": str(spec.get("quantifier") or "any").casefold(),
+        "require_valid_value": bool(spec.get("require_valid_value", True)),
+    }
+    return evaluate_predicate_row({"Matching Email": value}, predicate)
 
 
 def _answer_says_zero_or_none(answer_text: str) -> bool:

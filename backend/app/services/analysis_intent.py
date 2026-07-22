@@ -7,6 +7,11 @@ import re
 from app.services import ai_service
 from app.services.analysis_executor import MAX_OPERATIONS
 from app.services.industry_taxonomies import classify_people_question, get_taxonomy, industry_for_question
+from app.services.intent_filter import (
+    ALLOWED_PREDICATE_LOGIC,
+    ALLOWED_PREDICATE_OPERATORS,
+    ALLOWED_QUANTIFIERS,
+)
 from app.utils.ai_helpers import extract_response_text, parse_json_response
 from app.utils.text_utils import (
     clamp_limit as _limit,
@@ -227,9 +232,50 @@ You infer spreadsheet analysis intent for a safe pandas backend.
 Return only valid JSON. Do not include markdown fences or prose.
 Do not generate code. Do not compute final numeric answers.
 Use the compact dataset context only to infer intent, semantic columns, fuzzy concepts,
-search terms, output preference, and whether clarification is truly needed.
+typed row predicates, output preference, and whether clarification is truly needed.
 Do not require exact dataframe column names. Use semantic column names and aliases.
 Ask for clarification only when the request cannot be answered with available columns or safe operations.
+
+Exact filtering rules:
+- Never lose or reverse negation. "not X" must never become a positive contains-X predicate.
+- Keep exact row constraints separate from fuzzy concepts. Tech, consulting, finance, and
+  banking belong in filters/concepts; exact string, missing-value, and email-domain rules
+  belong in row_predicates.
+- Distinguish filter columns from columns requested only for display.
+- Preserve quantifiers: "any non-Cornell email" is quantifier any; "all emails are
+  non-Cornell" is all; "no Cornell email" is email_domain_in with quantifier none.
+- Use the user's original wording. Do not broaden a narrow domain or string constraint,
+  do not invent a domain, and do not substitute a paraphrase that weakens a constraint.
+- Supported operators only: exists, missing, equals, not_equals, contains, not_contains,
+  email_domain_in, email_domain_not_in. Never emit regex, code, or an expression.
+- Domain predicates should set require_valid_value=true. Cornell means cornell.edu and,
+  when include_subdomains=true, its DNS subdomains; it does not mean any domain containing
+  the word cornell.
+
+Clause-preserving composition rules:
+- Preserve every recognized source clause. Never choose only one side of an AND/OR request,
+  never change AND to OR, and never use a paraphrased user_goal to weaken the original wording.
+- Fuzzy employer capabilities such as "a company that offers SWE internships" belong in
+  people_filter_spec/concepts/filters. They must not become an exact contains("SWE internship")
+  predicate because that wording may not appear in the spreadsheet.
+- Exact predicates modify the fuzzy alumni result set. They do not replace it.
+- Email constraints apply to the alumnus record's email-like columns unless the user explicitly
+  requests employer, recruiter, or company contact information.
+- Keep display, sort, aggregation, grouping, and limit instructions separate from filter clauses.
+
+Examples:
+- "email that isn't their Cornell email" -> email_domain_not_in ["cornell.edu"], any.
+- "all emails are outside Cornell" -> email_domain_not_in ["cornell.edu"], all.
+- "has no Cornell email" -> email_domain_in ["cornell.edu"], none, require a valid email.
+- "without LinkedIn" -> missing(linkedin_url). This is a filter, not a display request.
+- "employer is not Google" -> not_equals(employer, "Google"), never contains Google.
+- "show email for tech alumni" -> tech is a fuzzy filter; email is display-only unless
+  the wording also states an exact email constraint.
+- "companies that offer SWE internships" -> fuzzy people_filter_spec for the technology
+  employer capability, with no exact row predicate.
+- "non-Cornell email" -> exact email_domain_not_in predicate, with no fuzzy employer filter.
+- "companies that offer SWE internships and have a non-Cornell email" -> retain both the
+  fuzzy people_filter_spec and exact predicate with logical_operator "and".
 
 Return this JSON shape:
 {
@@ -260,6 +306,26 @@ Return this JSON shape:
       "match_mode": "contains_any"
     }
   ],
+  "logical_operator": "and | or",
+  "people_filter_spec": {
+    "entity": "alumni",
+    "filter_type": "industry",
+    "industry": "tech",
+    "capability": "offers_software_engineering_internships"
+  },
+  "row_predicates": {
+    "logic": "and | or",
+    "predicates": [
+      {
+        "semantic_column": "email",
+        "operator": "email_domain_not_in",
+        "values": ["cornell.edu"],
+        "include_subdomains": true,
+        "quantifier": "any | all | none",
+        "require_valid_value": true
+      }
+    ]
+  },
   "sort": null,
   "aggregation": null,
   "desired_output": {
@@ -389,6 +455,9 @@ def validate_analysis_intent(value):
             filters.append({"concept": concept, "apply_to_semantic_columns": apply_to, "match_mode": match_mode})
 
     concepts = _expand_concepts(concepts, filters)
+    logical_operator = _clean_choice(value.get("logical_operator"), ALLOWED_PREDICATE_LOGIC, "and")
+    people_filter_spec = _validate_model_people_filter_spec(value.get("people_filter_spec"))
+    row_predicates, row_predicate_errors = _validate_model_row_predicates(value.get("row_predicates"))
 
     sort = value.get("sort") if isinstance(value.get("sort"), dict) else None
     if sort:
@@ -437,6 +506,10 @@ def validate_analysis_intent(value):
         "concepts": concepts,
         "semantic_columns": semantic_columns,
         "filters": filters,
+        "logical_operator": logical_operator,
+        "people_filter_spec": people_filter_spec,
+        "row_predicates": row_predicates,
+        "row_predicate_validation_errors": row_predicate_errors,
         "sort": sort,
         "aggregation": aggregation,
         "desired_output": desired_output,
@@ -461,9 +534,14 @@ def intent_to_analysis_plan(intent, dataset_context):
             reason = intent.get("clarifying_question") or "Clarification is needed before this analysis can run."
             return _empty_plan(reason)
 
+    intent = _materialize_people_filter_search(intent)
+
     resolved = resolve_intent_semantic_columns(intent, dataset_context)
     assumptions = list(intent.get("assumptions") or [])
     assumptions.extend(_resolution_assumptions(resolved))
+
+    if isinstance(intent.get("row_predicates"), dict) and intent["row_predicates"].get("predicates"):
+        return _plan_row_predicates(intent, resolved, assumptions)
 
     if isinstance(intent.get("direct_operation"), dict):
         return _plan(
@@ -500,6 +578,12 @@ def resolve_intent_semantic_columns(intent, dataset_context):
     requested_keys = set(semantic_aliases)
     for filter_spec in intent.get("filters") or []:
         requested_keys.update(filter_spec.get("apply_to_semantic_columns") or [])
+    for predicate in (intent.get("row_predicates") or {}).get("predicates") or []:
+        semantic_key = predicate.get("semantic_column")
+        if semantic_key:
+            requested_keys.add(semantic_key)
+    if (intent.get("row_predicates") or {}).get("predicates"):
+        requested_keys.update(["first_name", "last_name", "linkedin_url"])
     desired = intent.get("desired_output") or {}
     requested_keys.update(item for item in desired.get("semantic_columns") or [] if item != "matched_reason")
     if "person_name" in requested_keys:
@@ -810,6 +894,87 @@ def _direct_filter_intent(question, operation_type, params, assumption):
     }
     intent["assumptions"] = [assumption]
     return intent
+
+
+def _plan_row_predicates(intent, resolved, assumptions):
+    root = intent.get("row_predicates") or {}
+    predicates = []
+    for predicate in root.get("predicates") or []:
+        columns = list(predicate.get("resolved_columns") or predicate.get("columns") or [])
+        if not columns:
+            semantic = predicate.get("semantic_column")
+            column = _first_resolved(resolved, semantic)
+            columns = [column] if column else []
+        if not columns:
+            semantic = str(predicate.get("semantic_column") or "requested").replace("_", " ")
+            return _empty_plan(f"I could not find a {semantic}-like column in this dataset.")
+        normalized = dict(predicate)
+        normalized["columns"] = columns
+        normalized.pop("resolved_columns", None)
+        predicates.append(normalized)
+
+    if not predicates:
+        return _empty_plan("No valid exact row predicates were available.")
+
+    default_columns = [
+        column
+        for semantic in ["first_name", "last_name", "person_name", "linkedin_url"]
+        if (column := _first_resolved(resolved, semantic))
+    ]
+    return_columns = _return_columns_for_intent(intent, resolved, default=default_columns)
+    params = {
+        "logic": root.get("logic") or "and",
+        "predicates": predicates,
+        "return_columns": return_columns,
+        "display_columns": return_columns,
+        "limit": (intent.get("desired_output") or {}).get("limit", 500),
+        "question": intent.get("original_question") or intent.get("user_goal") or "",
+    }
+
+    sort = intent.get("sort") if isinstance(intent.get("sort"), dict) else None
+    if sort and sort.get("semantic_column"):
+        sort_column = _first_resolved(resolved, sort.get("semantic_column"))
+        if not sort_column:
+            return _empty_plan(f"I could not find a {sort.get('semantic_column')}-like column for sorting.")
+        params["sort"] = {
+            "column": sort_column,
+            "direction": sort.get("direction") or "desc",
+        }
+    if isinstance(intent.get("aggregation"), dict):
+        params["aggregation"] = dict(intent["aggregation"])
+
+    # Fuzzy classification must run against the full dataframe exactly as it
+    # does standalone.  The composite executor then combines stable row IDs
+    # with the independently evaluated exact-predicate set.
+    if intent.get("filters") or intent.get("people_filter_spec"):
+        fuzzy_plan = _plan_find_records(intent, resolved, assumptions)
+        if not fuzzy_plan.get("operations"):
+            return fuzzy_plan
+        fuzzy_operation = fuzzy_plan["operations"][0]
+        if fuzzy_operation.get("type") != "contains_any":
+            return _empty_plan("The fuzzy clause could not be represented as an approved people filter.")
+        if (fuzzy_operation.get("params") or {}).get("filter_mode") not in {"people", "tech_people"}:
+            return _empty_plan(
+                "A recognized fuzzy people clause could not be routed through the approved people classifier."
+            )
+        params.update(
+            {
+                "constraint_logic": intent.get("logical_operator") or "and",
+                "people_operation": fuzzy_operation,
+                "recognized_constraint_count": 1 + len(predicates),
+            }
+        )
+        return _plan(
+            [{"type": "composite_people_filter", "params": params}],
+            (intent.get("desired_output") or {}).get("format", "table"),
+            assumptions,
+        )
+
+    return _plan(
+        [{"type": "filter_predicates", "params": params}],
+        (intent.get("desired_output") or {}).get("format", "table"),
+        assumptions,
+    )
 
 
 def _plan_find_records(intent, resolved, assumptions):
@@ -1441,6 +1606,7 @@ def _base_intent(intent, target_entity, question, output_format, aggregation=Non
         "concepts": [],
         "semantic_columns": {},
         "filters": [],
+        "row_predicates": {"logic": "and", "predicates": []},
         "sort": None,
         "aggregation": aggregation,
         "desired_output": {"format": output_format, "semantic_columns": [], "limit": 100},
@@ -1488,6 +1654,134 @@ def _clean_text_list(value, limit):
         if text:
             items.append(text)
     return list(dict.fromkeys(items))[:limit]
+
+
+def _validate_model_people_filter_spec(value):
+    if not isinstance(value, dict):
+        return None
+    filter_type = _clean_choice(value.get("filter_type"), {"industry", "employer", "occupation"}, "industry")
+    spec = {
+        "intent": "people_filter",
+        "entity": "alumni",
+        "filter_type": filter_type,
+        "criteria_label": _clean_text(value.get("criteria_label"), max_length=200),
+        "answer_label": "Alumni matching criteria",
+    }
+    if filter_type == "industry":
+        industry = _clean_key(value.get("industry"))
+        if not get_taxonomy(industry):
+            return None
+        spec.update(
+            {
+                "industry": industry,
+                "industries": [industry],
+                "query_scope": _clean_choice(
+                    value.get("query_scope"),
+                    {"industry", "tech_company", "technical_role", "subindustry", "industry_exclusion"},
+                    "industry",
+                ),
+            }
+        )
+        capability = _clean_key(value.get("capability"))
+        if capability == "offers_software_engineering_internships":
+            spec["capability"] = capability
+    elif filter_type == "employer":
+        terms = _clean_text_list(value.get("employer_terms"), limit=20)
+        if not terms:
+            return None
+        spec["employer_terms"] = terms
+    else:
+        terms = _clean_text_list(value.get("occupation_terms"), limit=20)
+        if not terms:
+            return None
+        spec["occupation_terms"] = terms
+    return spec
+
+
+def _materialize_people_filter_search(intent):
+    """Supply deterministic taxonomy search concepts when a model omitted them."""
+    if not isinstance(intent, dict) or not isinstance(intent.get("people_filter_spec"), dict):
+        return intent
+    # Capability questions cannot be reduced to literal text such as "SWE
+    # internship" in an employer cell.  Canonicalize them even when a model
+    # emitted filters so standalone and composite requests use identical
+    # taxonomy candidate generation and classifier behavior.
+    if intent.get("filters") and not intent["people_filter_spec"].get("capability"):
+        return intent
+
+    original = intent.get("original_question") or intent.get("user_goal") or ""
+    fallback = people_filter_fallback_intent(original, intent["people_filter_spec"])
+    fallback["original_question"] = original
+    fallback["logical_operator"] = intent.get("logical_operator") or "and"
+    for key in ["row_predicates", "row_predicate_validation_errors", "sort", "aggregation"]:
+        if intent.get(key) is not None:
+            fallback[key] = intent.get(key)
+    desired = intent.get("desired_output") if isinstance(intent.get("desired_output"), dict) else {}
+    if desired.get("semantic_columns") or desired.get("format") in {"table", "metrics", "ranked_list"}:
+        fallback["desired_output"] = desired
+    fallback["assumptions"] = list(
+        dict.fromkeys((fallback.get("assumptions") or []) + (intent.get("assumptions") or []))
+    )
+    return fallback
+
+
+def _validate_model_row_predicates(value):
+    """Retain safe typed model JSON for the source-authoritative gate.
+
+    Column resolution intentionally happens later because this validator is
+    also used independently of a dataset context in unit tests.
+    """
+    if value is None:
+        return {"logic": "and", "predicates": []}, []
+    if not isinstance(value, dict):
+        return {"logic": "and", "predicates": []}, ["row_predicates must be an object."]
+    logic = str(value.get("logic") or "and").strip().casefold()
+    errors = []
+    if logic not in ALLOWED_PREDICATE_LOGIC:
+        errors.append(f"Unsupported predicate logic '{logic}'.")
+        logic = "and"
+    raw_predicates = value.get("predicates")
+    if not isinstance(raw_predicates, list):
+        return {"logic": logic, "predicates": []}, errors + ["row_predicates.predicates must be a list."]
+
+    predicates = []
+    for raw in raw_predicates[:12]:
+        if not isinstance(raw, dict):
+            errors.append("Each row predicate must be an object.")
+            continue
+        operator = str(raw.get("operator") or "").strip().casefold()
+        if operator not in ALLOWED_PREDICATE_OPERATORS:
+            errors.append(f"Unsupported row predicate operator '{operator or 'missing'}'.")
+            continue
+        semantic = _clean_key(raw.get("semantic_column") or raw.get("semantic") or raw.get("column"))
+        if not semantic:
+            errors.append("A semantic_column is required for each row predicate.")
+            continue
+        quantifier = str(raw.get("quantifier") or "any").strip().casefold()
+        if quantifier not in ALLOWED_QUANTIFIERS:
+            errors.append(f"Unsupported predicate quantifier '{quantifier}'.")
+            continue
+        raw_values = raw.get("values")
+        if raw_values is None and raw.get("value") is not None:
+            raw_values = [raw.get("value")]
+        values = _clean_text_list(raw_values, limit=20)
+        if operator not in {"exists", "missing"} and not values:
+            errors.append(f"Predicate operator '{operator}' requires at least one value.")
+            continue
+        predicate = {
+            "semantic_column": semantic,
+            "operator": operator,
+            "values": values,
+            "include_subdomains": bool(raw.get("include_subdomains", True)),
+            "quantifier": quantifier,
+            "require_valid_value": bool(raw.get("require_valid_value", False)),
+            "source": "model_inferred",
+        }
+        columns = raw.get("resolved_columns") or raw.get("columns")
+        if columns is not None:
+            predicate["resolved_columns"] = _clean_text_list(columns, limit=12)
+        predicates.append(predicate)
+    return {"logic": logic, "predicates": predicates}, list(dict.fromkeys(errors))
 
 
 def _as_list(value):

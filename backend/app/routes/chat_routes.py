@@ -14,6 +14,7 @@ from app.services.display_sanitizer import (
 )
 from app.services.history_store import HistoryStoreError, create_history_item
 from app.services.industry_matching import debug_classify_person
+from app.services.intent_filter import apply_intent_filter
 from app.services.spreadsheet_service import to_json_safe
 
 
@@ -43,7 +44,28 @@ def ask_dataset():
     question_text = str(question).strip()
     context = build_dataset_context(df, metadata=metadata)
     analysis_intent, intent_valid, intent_error = infer_analysis_intent(question_text, context)
-    if intent_valid:
+    intent_filter_trace = {
+        "intent_filter_applied": False,
+        "intent_filter_source": "none",
+        "intent_filter_predicate_count": 0,
+        "intent_filter_valid": True,
+        "intent_filter_repaired_model_output": False,
+        "intent_filter_conflicts_removed": 0,
+        "intent_filter_resolved_columns": [],
+        "intent_filter_operators": [],
+        "post_verification_removed_count": 0,
+    }
+    analysis_intent, intent_filter_trace = apply_intent_filter(
+        question_text,
+        context,
+        analysis_intent,
+    )
+    intent_filter_repaired_invalid_intent = bool(
+        intent_filter_trace.get("intent_filter_applied")
+        and intent_filter_trace.get("intent_filter_valid")
+        and intent_filter_trace.get("intent_filter_predicate_count")
+    )
+    if intent_valid or intent_filter_repaired_invalid_intent:
         plan = intent_to_analysis_plan(analysis_intent, context)
         plan_valid = True
         plan_error = ""
@@ -51,6 +73,18 @@ def ask_dataset():
         plan = {"operations": [], "presentation_hint": "markdown", "assumptions": [], "cannot_answer_reason": intent_error}
         plan_valid = False
         plan_error = intent_error
+
+    planned_operation = plan["operations"][0] if plan.get("operations") else None
+    planned_operation_type = planned_operation.get("type") if isinstance(planned_operation, dict) else None
+    intent_filter_trace["planned_operation_type"] = planned_operation_type
+    if planned_operation_type == "composite_people_filter":
+        planned_count = int((planned_operation.get("params") or {}).get("recognized_constraint_count") or 0)
+        intent_filter_trace["planned_constraint_count"] = planned_count
+    intent_filter_trace["fuzzy_clause_dropped"] = bool(
+        intent_filter_trace.get("has_fuzzy_people_filter")
+        and intent_filter_trace.get("has_exact_row_predicates")
+        and planned_operation_type != "composite_people_filter"
+    )
 
     if plan_valid and plan.get("operations"):
         raw_operation_results = execute_analysis_plan(df, plan)
@@ -65,6 +99,22 @@ def ask_dataset():
 
     operation = plan["operations"][0] if plan.get("operations") else None
     result = operation_results[0] if operation_results else None
+    if isinstance(result, dict):
+        intent_filter_trace["post_verification_removed_count"] = int(
+            result.get("post_verification_removed_count")
+            or (result.get("metrics") or {}).get("post_verification_removed_count")
+            or 0
+        )
+        for key in [
+            "fuzzy_direct_count_before_predicates",
+            "fuzzy_adjacent_count_before_predicates",
+            "fuzzy_uncertain_count_before_predicates",
+            "exact_predicate_match_count",
+            "direct_count_after_intersection",
+            "adjacent_count_after_intersection",
+            "uncertain_count_after_intersection",
+        ]:
+            intent_filter_trace[key] = int(result.get(key) or (result.get("metrics") or {}).get(key) or 0)
 
     answer_text = answer.get("summary", "") if isinstance(answer, dict) else str(answer)
     response_payload = sanitize_response_payload({
@@ -76,6 +126,7 @@ def ask_dataset():
         "result": result,
         "analysis_intent": analysis_intent,
         "analysis_plan": plan,
+        "intent_filter_trace": intent_filter_trace,
         "operation_results": operation_results,
     }, question_text)
     answer = response_payload["answer"]

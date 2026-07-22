@@ -5,6 +5,7 @@ import pytest
 
 from app import create_app
 from app.services import ai_service
+from app.services.email_utils import domain_matches, extract_email_tokens
 
 
 @pytest.fixture
@@ -17,6 +18,7 @@ def app(tmp_path, monkeypatch):
         UPLOAD_FOLDER=str(tmp_path / "uploads"),
         DATA_FOLDER=str(tmp_path / "data"),
         DATASET_REGISTRY_PATH=str(tmp_path / "data" / "datasets.json"),
+        HISTORY_REGISTRY_PATH=str(tmp_path / "data" / "history.json"),
     )
 
     yield app
@@ -1118,3 +1120,305 @@ def test_people_filter_rows_do_not_contain_debug_fields(client):
     rendered = " ".join(str(block) for block in answer["blocks"])
     assert "internal_reason" not in rendered
     assert "match_sources" not in rendered
+
+
+def test_non_cornell_email_question_uses_verified_typed_predicate_flow(client):
+    df = pd.DataFrame(
+        [
+            {"First Name": "A", "Last Name": "One", "Email": "a@cornell.edu", "LinkedIn URL": ""},
+            {"First Name": "B", "Last Name": "Two", "Email": "b@gmail.com", "LinkedIn URL": "linkedin.com/in/b"},
+            {"First Name": "C", "Last Name": "Three", "Email": "c@alumni.cornell.edu", "LinkedIn URL": ""},
+            {"First Name": "D", "Last Name": "Four", "Email": "d@cornell.edu; d@yahoo.com", "LinkedIn URL": ""},
+            {"First Name": "E", "Last Name": "Five", "Email": "", "LinkedIn URL": ""},
+            {"First Name": "F", "Last Name": "Six", "Email": "not an email", "LinkedIn URL": ""},
+            {"First Name": "G", "Last Name": "Seven", "Email": "g@cornell.edu.com", "LinkedIn URL": ""},
+            {"First Name": "H", "Last Name": "Eight", "Email": "h@cornelltech.io", "LinkedIn URL": ""},
+        ]
+    )
+    dataset_id = upload_dataframe(client, df, "external-email.csv")
+
+    data = ask(
+        client,
+        dataset_id,
+        "Show me all alumni in the database who have an email in there that is not their Cornell email.",
+    )
+
+    assert data["operation"]["type"] == "filter_predicates"
+    assert data["intent_filter_trace"]["intent_filter_applied"] is True
+    assert data["intent_filter_trace"]["intent_filter_valid"] is True
+    assert data["intent_filter_trace"]["intent_filter_operators"] == ["email_domain_not_in"]
+    result = data["result"]
+    assert result["operation_type"] == "filter_predicates"
+    assert [row["First Name"] for row in result["rows"]] == ["B", "D", "G", "H"]
+    assert [row["Matching Email"] for row in result["rows"]] == [
+        "b@gmail.com",
+        "d@yahoo.com",
+        "g@cornell.edu.com",
+        "h@cornelltech.io",
+    ]
+    assert result["metrics"]["matched_row_count"] == 4
+    assert result["metrics"]["returned_row_count"] == 4
+    assert result["metrics"]["post_verification_removed_count"] == 0
+    assert data["answer"]["summary"] == "Found 4 alumni matching the exact criteria."
+    table = table_blocks(data["answer"])[0]
+    assert table["columns"] == ["First Name", "Last Name", "Matching Email", "LinkedIn URL"]
+    assert all(
+        all(not domain_matches(token["domain"], "cornell.edu") for token in extract_email_tokens(row[2]))
+        for row in table["rows"]
+    )
+    assert "debug" not in str(table).casefold()
+    assert "predicate" not in " ".join(table["columns"]).casefold()
+    assert data["history_item"]["history_id"]
+    history = client.get("/api/history").get_json()
+    assert history["count"] == 1
+    assert history["history"][0]["response_payload"]["result"]["metrics"]["matched_row_count"] == 4
+
+
+def test_explicit_email_constraint_repairs_non_object_model_intent(client, monkeypatch):
+    class FakeResponses:
+        def create(self, **_kwargs):
+            return type("FakeResponse", (), {"output_text": "[]"})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(ai_service, "client", FakeClient())
+    dataset_id = upload_dataframe(
+        client,
+        pd.DataFrame(
+            {
+                "First Name": ["Cornell", "External"],
+                "Email": ["a@cornell.edu", "b@gmail.com"],
+            }
+        ),
+        "model-repair-email.csv",
+    )
+
+    data = ask(client, dataset_id, "Show alumni with a non-Cornell email.")
+
+    assert data["operation"]["type"] == "filter_predicates"
+    assert data["intent_filter_trace"]["intent_filter_source"] == "deterministic_explicit"
+    assert data["result"]["metrics"]["matched_row_count"] == 1
+    assert data["result"]["rows"][0]["First Name"] == "External"
+
+
+def test_non_cornell_email_filter_spans_multiple_email_columns(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["A", "B", "C"],
+            "Last Name": ["One", "Two", "Three"],
+            "Cornell Email": ["a@cornell.edu", "b@cornell.edu", ""],
+            "Personal Email": ["", "b@gmail.com", "c@alumni.cornell.edu"],
+            "Work Email": ["", "", "c@company.com"],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "multiple-emails.csv")
+
+    data = ask(client, dataset_id, "Show alumni with any non-Cornell email in there.")
+
+    predicate = data["analysis_intent"]["row_predicates"]["predicates"][0]
+    assert predicate["resolved_columns"] == ["Cornell Email", "Personal Email", "Work Email"]
+    assert [row["First Name"] for row in data["result"]["rows"]] == ["B", "C"]
+    assert [row["Matching Email"] for row in data["result"]["rows"]] == ["b@gmail.com", "c@company.com"]
+
+
+def test_tech_and_external_email_combines_classifier_with_exact_predicate(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace", "Marie"],
+            "Last Name": ["Lovelace", "Hopper", "Curie"],
+            "Occupation": ["Software Engineer", "Product Manager", "Doctor"],
+            "Employer": ["Bakery", "Google", "Hospital"],
+            "Email": ["ada@gmail.com", "grace@cornell.edu", "marie@gmail.com"],
+            "LinkedIn URL": ["", "", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "tech-external-email.csv")
+
+    data = ask(client, dataset_id, "Which alumni work in tech and have a non-Cornell email?")
+
+    assert data["operation"]["type"] == "composite_people_filter"
+    assert data["operation"]["params"]["people_operation"]["params"]["filter_mode"] in {"people", "tech_people"}
+    assert data["operation"]["params"]["constraint_logic"] == "and"
+    assert data["analysis_intent"]["filters"]
+    assert data["analysis_intent"]["row_predicates"]["predicates"]
+    assert data["result"]["intent"] == "people_filter"
+    assert data["result"]["total_matches"] == 1
+    assert [row["First Name"] for row in data["result"]["rows"]] == ["Ada"]
+    assert data["result"]["rows"][0]["Matching Email"] == "ada@gmail.com"
+    assert data["result"]["post_verification_removed_count"] == 0
+    assert data["intent_filter_trace"]["recognized_constraint_count"] == 2
+    assert data["intent_filter_trace"]["planned_constraint_count"] == 2
+    assert data["intent_filter_trace"]["fuzzy_clause_dropped"] is False
+
+
+def test_consultants_without_linkedin_combines_fuzzy_and_missing_predicate(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["Jane", "Pat", "Ada"],
+            "Last Name": ["Smith", "Partner", "Lovelace"],
+            "Occupation": ["Consultant", "Partner", "Software Engineer"],
+            "Employer": ["Independent Consulting", "McKinsey", "Google"],
+            "LinkedIn URL": ["", "linkedin.com/in/pat", ""],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "consultants-linkedin.csv")
+
+    data = ask(client, dataset_id, "Which consultants do not have LinkedIn URLs?")
+
+    predicate = data["analysis_intent"]["row_predicates"]["predicates"][0]
+    assert predicate["operator"] == "missing"
+    assert predicate["semantic_column"] == "linkedin_url"
+    assert data["operation"]["type"] == "composite_people_filter"
+    assert data["operation"]["params"]["people_operation"]["params"]["filter_mode"] == "people"
+    assert data["result"]["total_matches"] == 1
+    assert data["result"]["rows"][0]["First Name"] == "Jane"
+
+
+def test_fuzzy_exact_and_combined_api_results_obey_the_intersection_invariant(client):
+    df = pd.DataFrame(
+        [
+            {
+                "First Name": "A",
+                "Last Name": "One",
+                "Occupation": "Software Engineer",
+                "Employer": "Google",
+                "Email1": "a@gmail.com",
+                "Email2": "",
+                "LinkedIn URL": "linkedin.com/in/a",
+            },
+            {
+                "First Name": "B",
+                "Last Name": "Two",
+                "Occupation": "Product Manager",
+                "Employer": "Google",
+                "Email1": "b@cornell.edu",
+                "Email2": "",
+                "LinkedIn URL": "",
+            },
+            {
+                "First Name": "C",
+                "Last Name": "Three",
+                "Occupation": "Teacher",
+                "Employer": "High School",
+                "Email1": "c@yahoo.com",
+                "Email2": "",
+                "LinkedIn URL": "",
+            },
+            {
+                "First Name": "D",
+                "Last Name": "Four",
+                "Occupation": "Finance Manager",
+                "Employer": "Microsoft",
+                "Email1": "d@cornell.edu",
+                "Email2": "d@gmail.com",
+                "LinkedIn URL": "linkedin.com/in/d",
+            },
+        ]
+    )
+    dataset_id = upload_dataframe(client, df, "composite-api.csv")
+    fuzzy_question = "Which alumni work at a company that offers SWE internships of any kind?"
+    exact_question = "Which alumni have an email in the dataset that is not a Cornell email?"
+    combined_question = (
+        "Which alumni work at a company that offers SWE internships of any kind and have an "
+        "email in the dataset that is not a Cornell email?"
+    )
+
+    fuzzy = ask(client, dataset_id, fuzzy_question)
+    exact = ask(client, dataset_id, exact_question)
+    combined = ask(client, dataset_id, combined_question)
+
+    assert fuzzy["operation"]["type"] == "contains_any"
+    assert fuzzy["operation"]["params"]["filter_mode"] == "people"
+    assert exact["operation"]["type"] == "filter_predicates"
+    assert combined["operation"]["type"] == "composite_people_filter"
+    assert len(combined["analysis_plan"]["operations"]) == 1
+    assert combined["operation"]["params"]["people_operation"]["params"]["filter_mode"] == "people"
+
+    fuzzy_direct = {row["First Name"] for row in fuzzy["result"]["direct_rows"]}
+    exact_ids = {row["First Name"] for row in exact["result"]["rows"]}
+    combined_direct = {row["First Name"] for row in combined["result"]["direct_rows"]}
+    assert fuzzy_direct == {"A", "B", "D"}
+    assert exact_ids == {"A", "C", "D"}
+    assert combined_direct == fuzzy_direct & exact_ids == {"A", "D"}
+
+    for bucket in ["direct_rows", "adjacent_rows", "uncertain_rows"]:
+        assert {row["First Name"] for row in combined["result"][bucket]} == (
+            {row["First Name"] for row in fuzzy["result"][bucket]} & exact_ids
+        )
+    result = combined["result"]
+    assert result["direct_count"] == len(combined_direct) == result["total_matches"]
+    assert result["metrics"]["displayed_count"] == len(result["rows"])
+    assert result["metrics"]["post_verification_removed_count"] == 0
+    assert [row["Matching Email"] for row in result["direct_rows"]] == [
+        "a@gmail.com",
+        "d@gmail.com",
+    ]
+    assert result["visible_columns"] == [
+        "First Name",
+        "Last Name",
+        "Occupation",
+        "Employer",
+        "Matching Email",
+        "LinkedIn URL",
+    ]
+    rendered = str(combined["answer"])
+    for forbidden in ["__alumniai_row_id__", "internal_reason", "match_sources", "confidence"]:
+        assert forbidden not in rendered
+        assert forbidden not in str(result)
+
+    trace = combined["intent_filter_trace"]
+    assert trace["is_composite_filter"] is True
+    assert trace["constraint_logic"] == "and"
+    assert trace["recognized_constraint_count"] == trace["planned_constraint_count"] == 2
+    assert trace["planned_operation_type"] == "composite_people_filter"
+    assert trace["fuzzy_clause_dropped"] is False
+    assert trace["fuzzy_direct_count_before_predicates"] == 3
+    assert trace["exact_predicate_match_count"] == 3
+    assert trace["direct_count_after_intersection"] == 2
+
+    history = client.get("/api/history").get_json()
+    assert history["count"] == 3
+    assert history["history"][0]["response_payload"]["operation"]["type"] == "composite_people_filter"
+
+    saved = client.post(
+        "/api/insights",
+        json={
+            "dataset_id": dataset_id,
+            "question": combined_question,
+            "answer": combined["answer_text"],
+            "response_payload": combined,
+        },
+    )
+    assert saved.status_code == 201
+    saved_payload = saved.get_json()["response_payload"]
+    assert saved_payload["operation"]["type"] == "composite_people_filter"
+    assert "__alumniai_row_id__" not in str(saved_payload)
+
+
+def test_combined_api_query_is_order_independent(client):
+    df = pd.DataFrame(
+        {
+            "First Name": ["External", "Cornell"],
+            "Last Name": ["One", "Two"],
+            "Occupation": ["Product Manager", "Product Manager"],
+            "Employer": ["Google", "Google"],
+            "Email": ["a@gmail.com", "b@cornell.edu"],
+        }
+    )
+    dataset_id = upload_dataframe(client, df, "composite-order.csv")
+
+    first = ask(
+        client,
+        dataset_id,
+        "Which alumni work at companies offering SWE internships and have a non-Cornell email?",
+    )
+    second = ask(
+        client,
+        dataset_id,
+        "Which alumni have a non-Cornell email and work at companies offering SWE internships?",
+    )
+
+    assert first["operation"]["type"] == second["operation"]["type"] == "composite_people_filter"
+    assert first["result"]["direct_rows"] == second["result"]["direct_rows"]
+    assert first["result"]["direct_count"] == second["result"]["direct_count"] == 1

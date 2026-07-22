@@ -192,7 +192,19 @@ def _run_cases_with_test_client(
             else:
                 response_json = _ask(client, dataset_id, case["question"])
                 normalized = extract_normalized_response(response_json)
-                scored = score_case(case, normalized, gold_df)
+                scoring_case = dict(case)
+                composition = case.get("composition_reference")
+                if isinstance(composition, dict):
+                    fuzzy_question = str(composition.get("fuzzy_question") or "").strip()
+                    exact_question = str(composition.get("exact_question") or "").strip()
+                    if fuzzy_question and exact_question:
+                        fuzzy_response = _ask(client, dataset_id, fuzzy_question)
+                        exact_response = _ask(client, dataset_id, exact_question)
+                        scoring_case["_composition_reference"] = {
+                            "fuzzy": extract_normalized_response(fuzzy_response),
+                            "exact": extract_normalized_response(exact_response),
+                        }
+                scored = score_case(scoring_case, normalized, gold_df)
                 scored["answer_source"] = _answer_source(response_json, trace)
 
             duration_ms = (time.perf_counter() - started) * 1000

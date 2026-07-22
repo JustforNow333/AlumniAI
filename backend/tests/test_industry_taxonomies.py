@@ -241,3 +241,19 @@ def test_non_people_questions_are_not_classified():
 def test_industry_for_question_prefers_more_specific_alias():
     assert industry_for_question("Which alumni are in investment banking?") == "investment_banking"
     assert industry_for_question("Which alumni are in VC or private equity?") == "private_equity"
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Which alumni work at a company that offers SWE internships of any kind?",
+        "Who works for companies posting software engineering internships?",
+        "Which alumni are at employers that hire developer interns?",
+    ],
+)
+def test_software_engineering_internship_employer_is_a_fuzzy_capability(question):
+    spec = classify_people_question(question)
+    assert spec["filter_type"] == "industry"
+    assert spec["industry"] == "tech"
+    assert spec["query_scope"] == "industry"
+    assert spec["capability"] == "offers_software_engineering_internships"

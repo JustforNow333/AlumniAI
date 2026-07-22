@@ -1388,6 +1388,16 @@ def classify_people_question(question):
     if re.search(r"\bstartups?\b", normalized):
         return _industry_spec("startups")
 
+    if _software_engineering_internship_employer_question(normalized):
+        spec = _industry_spec("tech", query_scope="industry")
+        spec.update(
+            {
+                "capability": "offers_software_engineering_internships",
+                "criteria_label": "working at a company that offers software engineering internships",
+            }
+        )
+        return spec
+
     if _software_engineering_finance_question(normalized):
         return _industry_spec(
             "tech",
@@ -1532,6 +1542,32 @@ def _software_engineering_finance_question(normalized):
         normalized,
     )
     return bool(has_software_role and has_finance_context)
+
+
+def _software_engineering_internship_employer_question(normalized):
+    """Recognize an employer capability that requires fuzzy company matching.
+
+    The spreadsheet is not expected to contain the literal words "SWE
+    internship".  This source wording therefore selects the existing broad
+    technology-employer classifier instead of becoming an exact text search.
+    """
+    has_employer_subject = re.search(
+        r"\b(?:compan(?:y|ies)|employers?|organizations?|organisations?|firms?)\b",
+        normalized,
+    )
+    has_internship = re.search(
+        r"\b(?:internships?|interns?|intern\s+programs?|student\s+programs?)\b",
+        normalized,
+    )
+    has_software_engineering = re.search(
+        r"\b(?:swe|software\s+(?:engineer(?:ing)?|developer|development)|developer)\b",
+        normalized,
+    )
+    has_capability_verb = re.search(
+        r"\b(?:offers?|offering|posts?|posting|provides?|providing|has|have|hires?|hiring|recruits?|recruiting)\b",
+        normalized,
+    )
+    return bool(has_employer_subject and has_internship and has_software_engineering and has_capability_verb)
 
 
 def _broad_tech_role_or_company_question(normalized):

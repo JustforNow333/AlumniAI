@@ -337,6 +337,7 @@ def test_ask_success_automatically_creates_history(client):
             "result",
             "analysis_intent",
             "analysis_plan",
+            "intent_filter_trace",
             "operation_results",
         ]
     }

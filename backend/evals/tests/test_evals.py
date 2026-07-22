@@ -91,6 +91,44 @@ def test_compute_expected_rows_from_industry_and_filter():
     assert school["first_name"].tolist() == ["Sarah"]
 
 
+def test_compute_expected_rows_supports_typed_email_domain_quantifiers():
+    gold_df = pd.DataFrame(
+        {
+            "first_name": ["Cornell", "External", "Mixed", "Malformed"],
+            "last_name": ["Only", "Only", "Both", "Value"],
+            "email": [
+                "a@cornell.edu",
+                "b@gmail.com",
+                "c@cornell.edu; c@yahoo.com",
+                "not an email",
+            ],
+            "personal_email": ["", "", "", ""],
+        }
+    )
+    base = {
+        "columns": ["email", "personal_email"],
+        "values": ["cornell.edu"],
+        "include_subdomains": True,
+        "require_valid_value": True,
+    }
+    any_external = compute_expected_rows(
+        {"expected_filter": {**base, "op": "email_domain_not_in", "quantifier": "any"}},
+        gold_df,
+    )
+    all_external = compute_expected_rows(
+        {"expected_filter": {**base, "op": "email_domain_not_in", "quantifier": "all"}},
+        gold_df,
+    )
+    no_cornell = compute_expected_rows(
+        {"expected_filter": {**base, "op": "email_domain_in", "quantifier": "none"}},
+        gold_df,
+    )
+
+    assert any_external["first_name"].tolist() == ["External", "Mixed"]
+    assert all_external["first_name"].tolist() == ["External"]
+    assert no_cornell["first_name"].tolist() == ["External"]
+
+
 def test_compute_precision_recall_handles_empty_sets():
     assert compute_precision_recall(["Neil Wusu"], ["Neil Wusu", "Sarah Patel"]) == (1.0, 0.5)
     assert compute_precision_recall([], ["Neil Wusu"]) == (1.0, 0.0)
@@ -295,6 +333,100 @@ def test_execution_expectations_require_classifier_calls():
 
     assert result["passed"] is False
     assert any("LLM classifier calls were required" in failure for failure in result["failures"])
+
+
+def test_composition_scorer_uses_gold_person_ids_and_detects_a_dropped_intersection():
+    gold = pd.DataFrame(
+        {
+            "person_id": ["A", "B", "C", "D"],
+            "first_name": ["A", "B", "C", "D"],
+            "last_name": ["One", "Two", "Three", "Four"],
+            "employer": ["Google", "Google", "School", "Microsoft"],
+            "title": ["Engineer", "Manager", "Teacher", "Manager"],
+            "email": ["a@gmail.com", "b@cornell.edu", "c@yahoo.com", "d@gmail.com"],
+        }
+    )
+
+    def row(person, matching=""):
+        source = gold.loc[gold["person_id"].eq(person)].iloc[0]
+        return {
+            "First Name": source["first_name"],
+            "Last Name": source["last_name"],
+            "Employer": source["employer"],
+            "Title": source["title"],
+            "Matching Email": matching,
+        }
+
+    fuzzy = {
+        "rows": [row("A"), row("B"), row("D")],
+        "bucket_rows": {"direct": [row("A"), row("B"), row("D")], "adjacent": [], "uncertain": []},
+    }
+    exact = {
+        "rows": [row("A", "a@gmail.com"), row("C", "c@yahoo.com"), row("D", "d@gmail.com")],
+        "bucket_rows": {"direct": [], "adjacent": [], "uncertain": []},
+    }
+    combined_rows = [row("A", "a@gmail.com"), row("D", "d@gmail.com")]
+    normalized = {
+        "answer_text": "Found 2 direct matches.",
+        "rows": combined_rows,
+        "bucket_rows": {"direct": combined_rows, "adjacent": [], "uncertain": []},
+        "surfaced_rows": combined_rows,
+        "displayed_columns": ["First Name", "Last Name", "Employer", "Title", "Matching Email"],
+        "count": 2,
+        "displayed_count": 2,
+        "metrics": {
+            "direct_count_after_intersection": 2,
+            "adjacent_count_after_intersection": 0,
+            "uncertain_count_after_intersection": 0,
+            "post_verification_removed_count": 0,
+        },
+        "raw_response": {
+            "operation": {"type": "composite_people_filter"},
+            "intent_filter_trace": {
+                "intent_filter_applied": True,
+                "intent_filter_valid": True,
+                "has_fuzzy_people_filter": True,
+                "has_exact_row_predicates": True,
+                "is_composite_filter": True,
+                "fuzzy_clause_dropped": False,
+                "constraint_logic": "and",
+                "recognized_constraint_count": 2,
+                "planned_constraint_count": 2,
+            },
+        },
+        "extraction_source": "operation_results",
+        "scored_from": "operation_results",
+    }
+    case = {
+        "id": "composition",
+        "category": "filter_composition",
+        "question": "Which tech alumni have a non-Cornell email?",
+        "score_precision_recall": False,
+        "require_intent_filter": True,
+        "require_composite_filter": True,
+        "expected_constraint_logic": "and",
+        "composition_reference": {
+            "exact_filter": {
+                "columns": ["email"],
+                "op": "email_domain_not_in",
+                "values": ["cornell.edu"],
+                "quantifier": "any",
+                "require_valid_value": True,
+            }
+        },
+        "_composition_reference": {"fuzzy": fuzzy, "exact": exact},
+    }
+
+    assert score_case(case, normalized, gold)["passed"] is True
+
+    broken = dict(normalized)
+    broken_rows = [row("A", "a@gmail.com"), row("C", "c@yahoo.com")]
+    broken["rows"] = broken_rows
+    broken["bucket_rows"] = {"direct": broken_rows, "adjacent": [], "uncertain": []}
+    broken["surfaced_rows"] = broken_rows
+    scored = score_case(case, broken, gold)
+    assert scored["passed"] is False
+    assert "filter_composition" in scored["failure_categories"]
 
 
 def test_model_call_trace_classifies_response_create_calls():

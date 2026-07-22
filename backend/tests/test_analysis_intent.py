@@ -9,6 +9,7 @@ from app.services.analysis_intent import (
 from app.services.analysis_toolkit import build_dataset_context
 from app.services.answer_schema import deterministic_answer_from_results
 from app.services.analysis_executor import execute_analysis_plan
+from app.services.intent_filter import apply_intent_filter
 
 
 def tech_intent():
@@ -72,6 +73,37 @@ def test_intent_inference_output_can_be_validated():
     assert intent["intent"] == "find_records"
     assert intent["filters"][0]["concept"] == "tech_related"
     assert intent["desired_output"]["format"] == "table"
+
+
+def test_model_intent_schema_retains_only_allowlisted_row_predicates():
+    raw = tech_intent()
+    raw["row_predicates"] = {
+        "logic": "and",
+        "predicates": [
+            {
+                "semantic_column": "email",
+                "operator": "email_domain_not_in",
+                "values": ["cornell.edu"],
+                "include_subdomains": True,
+                "quantifier": "any",
+                "require_valid_value": True,
+            },
+            {
+                "semantic_column": "email",
+                "operator": "regex_python",
+                "values": [".*"],
+            },
+        ],
+    }
+
+    intent, valid, error = validate_analysis_intent(raw)
+
+    assert valid is True
+    assert error == ""
+    assert [item["operator"] for item in intent["row_predicates"]["predicates"]] == [
+        "email_domain_not_in"
+    ]
+    assert "regex_python" in intent["row_predicate_validation_errors"][0]
 
 
 def test_semantic_occupation_resolves_to_uppercase_occupation():
@@ -503,3 +535,102 @@ def test_model_rephrasing_finance_outside_ib_keeps_finance_excluding_ib():
     assert pf["industry"] == "finance"
     assert pf["query_scope"] == "industry_exclusion"
     assert "investment_banking" in pf["excluded_industries"]
+
+
+def test_planner_routes_fuzzy_exact_and_combined_queries_to_distinct_safe_paths():
+    df = pd.DataFrame(
+        {
+            "First Name": ["Ada", "Grace"],
+            "Last Name": ["Lovelace", "Hopper"],
+            "Occupation": ["Software Engineer", "Product Manager"],
+            "Employer": ["Google", "Microsoft"],
+            "Email": ["ada@gmail.com", "grace@cornell.edu"],
+        }
+    )
+    context = build_dataset_context(df)
+    fuzzy_question = "Which alumni work at a company that offers SWE internships of any kind?"
+    exact_question = "Which alumni have a non-Cornell email?"
+    combined_question = f"{fuzzy_question[:-1]} and have a non-Cornell email?"
+
+    fuzzy_intent, _ = apply_intent_filter(
+        fuzzy_question,
+        context,
+        heuristic_intent(fuzzy_question, context),
+    )
+    exact_intent, _ = apply_intent_filter(
+        exact_question,
+        context,
+        heuristic_intent(exact_question, context),
+    )
+    combined_intent, _ = apply_intent_filter(
+        combined_question,
+        context,
+        heuristic_intent(combined_question, context),
+    )
+
+    fuzzy_plan = intent_to_analysis_plan(fuzzy_intent, context)
+    exact_plan = intent_to_analysis_plan(exact_intent, context)
+    combined_plan = intent_to_analysis_plan(combined_intent, context)
+
+    assert fuzzy_plan["operations"][0]["type"] == "contains_any"
+    assert fuzzy_plan["operations"][0]["params"]["filter_mode"] == "people"
+    assert exact_plan["operations"][0]["type"] == "filter_predicates"
+    operation = combined_plan["operations"][0]
+    assert operation["type"] == "composite_people_filter"
+    assert operation["params"]["constraint_logic"] == "and"
+    assert operation["params"]["people_operation"]["params"]["filter_mode"] == "people"
+    assert operation["params"]["predicates"][0]["operator"] == "email_domain_not_in"
+    assert len(combined_plan["operations"]) == 1
+
+
+def test_model_literal_internship_search_cannot_replace_source_people_capability():
+    df = pd.DataFrame(
+        {
+            "Occupation": ["Product Manager"],
+            "Employer": ["Google"],
+            "Email": ["a@gmail.com"],
+        }
+    )
+    context = build_dataset_context(df)
+    question = (
+        "Which alumni work at a company that offers SWE internships "
+        "and have a non-Cornell email?"
+    )
+    model_intent = {
+        "intent": "find_records",
+        "original_question": question,
+        "user_goal": "Find literal SWE internship text and an employer email.",
+        "concepts": [
+            {
+                "name": "literal_internship",
+                "definition": "literal internship wording",
+                "search_terms": ["SWE internship"],
+                "known_entities": [],
+            }
+        ],
+        "filters": [
+            {
+                "concept": "literal_internship",
+                "apply_to_semantic_columns": ["employer"],
+                "match_mode": "contains_any",
+            }
+        ],
+        "desired_output": {"format": "table", "semantic_columns": []},
+    }
+
+    reconciled, trace = apply_intent_filter(question, context, model_intent)
+    plan = intent_to_analysis_plan(reconciled, context)
+    operation = plan["operations"][0]
+
+    assert reconciled["people_filter_spec"]["capability"] == "offers_software_engineering_internships"
+    assert operation["type"] == "composite_people_filter"
+    assert operation["params"]["people_operation"]["params"]["people_filter"]["capability"] == (
+        "offers_software_engineering_internships"
+    )
+    assert operation["params"]["people_operation"]["params"]["filter_mode"] == "people"
+    assert trace["recognized_constraint_count"] == trace["planned_constraint_count"] == 2
+    assert trace["intent_filter_people_filter_repaired"] is True
+    result = execute_analysis_plan(df, plan)[0]
+    assert result["status"] == "ok"
+    assert result["total_matches"] == 1
+    assert result["rows"][0]["Employer"] == "Google"
