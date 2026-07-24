@@ -11,6 +11,12 @@ from app.services.intent_filter import (
     ALLOWED_PREDICATE_LOGIC,
     ALLOWED_PREDICATE_OPERATORS,
     ALLOWED_QUANTIFIERS,
+    MAX_CLAUSES_PER_GROUP,
+    MAX_PREDICATES,
+    MAX_PREDICATE_GROUP_DEPTH,
+    normalize_operator_values,
+    predicate_group_for_execution,
+    predicate_group_leaves,
 )
 from app.utils.ai_helpers import extract_response_text, parse_json_response
 from app.utils.text_utils import (
@@ -47,6 +53,16 @@ SEMANTIC_COLUMN_SYNONYMS = {
     "numeric_value": ["value", "amount", "score", "revenue", "sales", "orders", "count"],
     "lifetime_giving": ["lifetime giving", "giving", "donation", "donor amount", "gift amount", "total giving"],
     "grad_year": ["grad year", "grad yr", "graduation year", "class year", "class yr"],
+    "event_count": ["event count", "events attended", "attendance count", "number of events"],
+    "last_contact_date": ["last contact date", "last contact", "contact date", "most recent contact"],
+    "updated_at": ["updated at", "updated date", "last updated", "modified date"],
+    "created_at": ["created at", "created date", "record created", "creation date"],
+    "relationship_manager": [
+        "relationship manager",
+        "assigned relationship manager",
+        "prospect manager",
+        "portfolio manager",
+    ],
     "gpa": ["gpa", "grade point average"],
     "category": ["category", "type", "segment", "group"],
     "revenue": ["revenue", "sales", "income"],
@@ -239,7 +255,8 @@ Ask for clarification only when the request cannot be answered with available co
 Exact filtering rules:
 - Never lose or reverse negation. "not X" must never become a positive contains-X predicate.
 - Keep exact row constraints separate from fuzzy concepts. Tech, consulting, finance, and
-  banking belong in filters/concepts; exact string, missing-value, and email-domain rules
+  banking belong in filters/concepts; exact numeric, date, membership, string,
+  missing-value, and email-domain rules
   belong in row_predicates.
 - Distinguish filter columns from columns requested only for display.
 - Preserve quantifiers: "any non-Cornell email" is quantifier any; "all emails are
@@ -247,7 +264,16 @@ Exact filtering rules:
 - Use the user's original wording. Do not broaden a narrow domain or string constraint,
   do not invent a domain, and do not substitute a paraphrase that weakens a constraint.
 - Supported operators only: exists, missing, equals, not_equals, contains, not_contains,
+  greater_than, greater_than_or_equal, less_than, less_than_or_equal, between,
+  in, not_in, date_before, date_after, date_between, starts_with, ends_with,
   email_domain_in, email_domain_not_in. Never emit regex, code, or an expression.
+- Preserve comparison boundaries exactly: more than/over -> greater_than; at least/no
+  fewer than -> greater_than_or_equal; less than/under -> less_than; at most/no more
+  than -> less_than_or_equal. "Between" is inclusive unless the source says otherwise.
+- Use in/not_in for explicit value lists, date operators for date bounds, and
+  starts_with/ends_with only for explicit prefix/suffix wording.
+- Nested Boolean groups may use clauses with type predicate or group. Use only and/or,
+  at most three levels, and never emit generic not, arithmetic, or field comparisons.
 - Domain predicates should set require_valid_value=true. Cornell means cornell.edu and,
   when include_subdomains=true, its DNS subdomains; it does not mean any domain containing
   the word cornell.
@@ -269,6 +295,12 @@ Examples:
 - "has no Cornell email" -> email_domain_in ["cornell.edu"], none, require a valid email.
 - "without LinkedIn" -> missing(linkedin_url). This is a filter, not a display request.
 - "employer is not Google" -> not_equals(employer, "Google"), never contains Google.
+- "giving over 5000" -> greater_than(lifetime_giving, 5000).
+- "at least 3 events" -> greater_than_or_equal(event_count, 3).
+- "graduated between 2018 and 2023" -> inclusive between(grad_year, [2018, 2023]).
+- "city is one of New York or Boston" -> in(city, ["New York", "Boston"]).
+- "contacted before January 2025" -> date_before(last_contact_date, ["2025-01-01"]).
+- "employer starts with Morgan" -> starts_with(employer, ["Morgan"]).
 - "show email for tech alumni" -> tech is a fuzzy filter; email is display-only unless
   the wording also states an exact email constraint.
 - "companies that offer SWE internships" -> fuzzy people_filter_spec for the technology
@@ -315,14 +347,17 @@ Return this JSON shape:
   },
   "row_predicates": {
     "logic": "and | or",
-    "predicates": [
+    "clauses": [
       {
-        "semantic_column": "email",
-        "operator": "email_domain_not_in",
-        "values": ["cornell.edu"],
-        "include_subdomains": true,
-        "quantifier": "any | all | none",
-        "require_valid_value": true
+        "type": "predicate",
+        "predicate": {
+          "semantic_column": "email",
+          "operator": "email_domain_not_in",
+          "values": ["cornell.edu"],
+          "include_subdomains": true,
+          "quantifier": "any | all | none",
+          "require_valid_value": true
+        }
       }
     ]
   },
@@ -540,7 +575,7 @@ def intent_to_analysis_plan(intent, dataset_context):
     assumptions = list(intent.get("assumptions") or [])
     assumptions.extend(_resolution_assumptions(resolved))
 
-    if isinstance(intent.get("row_predicates"), dict) and intent["row_predicates"].get("predicates"):
+    if predicate_group_leaves(intent.get("row_predicates")):
         return _plan_row_predicates(intent, resolved, assumptions)
 
     if isinstance(intent.get("direct_operation"), dict):
@@ -572,17 +607,24 @@ def intent_to_analysis_plan(intent, dataset_context):
 def resolve_intent_semantic_columns(intent, dataset_context):
     columns = dataset_context.get("columns") or []
     actual_names = [str(column.get("name")) for column in columns if column.get("name") is not None]
+    schema_mapping = (
+        (dataset_context.get("schema_mapping") or {}).get("canonical_to_source")
+        if isinstance(dataset_context.get("schema_mapping"), dict)
+        else {}
+    )
+    if not isinstance(schema_mapping, dict):
+        schema_mapping = {}
     semantic_aliases = dict(intent.get("semantic_columns") or {})
     concepts = intent.get("concepts") or []
 
     requested_keys = set(semantic_aliases)
     for filter_spec in intent.get("filters") or []:
         requested_keys.update(filter_spec.get("apply_to_semantic_columns") or [])
-    for predicate in (intent.get("row_predicates") or {}).get("predicates") or []:
+    for predicate in predicate_group_leaves(intent.get("row_predicates")):
         semantic_key = predicate.get("semantic_column")
         if semantic_key:
             requested_keys.add(semantic_key)
-    if (intent.get("row_predicates") or {}).get("predicates"):
+    if predicate_group_leaves(intent.get("row_predicates")):
         requested_keys.update(["first_name", "last_name", "linkedin_url"])
     desired = intent.get("desired_output") or {}
     requested_keys.update(item for item in desired.get("semantic_columns") or [] if item != "matched_reason")
@@ -606,6 +648,20 @@ def resolve_intent_semantic_columns(intent, dataset_context):
 
     resolved = {}
     for semantic_key in sorted(requested_keys):
+        mapped_sources = schema_mapping.get(semantic_key)
+        if semantic_key == "person_name" and not mapped_sources:
+            mapped_sources = schema_mapping.get("full_name")
+        mapped = next(
+            (
+                str(source)
+                for source in (mapped_sources or [])
+                if str(source) in actual_names
+            ),
+            None,
+        )
+        if mapped:
+            resolved[semantic_key] = mapped
+            continue
         aliases = []
         aliases.extend(semantic_aliases.get(semantic_key) or [])
         aliases.extend(SEMANTIC_COLUMN_SYNONYMS.get(semantic_key) or [])
@@ -898,8 +954,8 @@ def _direct_filter_intent(question, operation_type, params, assumption):
 
 def _plan_row_predicates(intent, resolved, assumptions):
     root = intent.get("row_predicates") or {}
-    predicates = []
-    for predicate in root.get("predicates") or []:
+    source_predicates = predicate_group_leaves(root)
+    for predicate in source_predicates:
         columns = list(predicate.get("resolved_columns") or predicate.get("columns") or [])
         if not columns:
             semantic = predicate.get("semantic_column")
@@ -908,13 +964,12 @@ def _plan_row_predicates(intent, resolved, assumptions):
         if not columns:
             semantic = str(predicate.get("semantic_column") or "requested").replace("_", " ")
             return _empty_plan(f"I could not find a {semantic}-like column in this dataset.")
-        normalized = dict(predicate)
-        normalized["columns"] = columns
-        normalized.pop("resolved_columns", None)
-        predicates.append(normalized)
+        predicate["resolved_columns"] = columns
 
-    if not predicates:
+    if not source_predicates:
         return _empty_plan("No valid exact row predicates were available.")
+    execution_group = predicate_group_for_execution(root)
+    predicates = predicate_group_leaves(execution_group)
 
     default_columns = [
         column
@@ -922,9 +977,16 @@ def _plan_row_predicates(intent, resolved, assumptions):
         if (column := _first_resolved(resolved, semantic))
     ]
     return_columns = _return_columns_for_intent(intent, resolved, default=default_columns)
+    for predicate in source_predicates:
+        if predicate.get("semantic_column") == "email":
+            continue
+        for column in predicate.get("resolved_columns") or []:
+            if column not in return_columns:
+                return_columns.append(column)
     params = {
         "logic": root.get("logic") or "and",
         "predicates": predicates,
+        "predicate_group": execution_group,
         "return_columns": return_columns,
         "display_columns": return_columns,
         "limit": (intent.get("desired_output") or {}).get("limit", 500),
@@ -957,6 +1019,18 @@ def _plan_row_predicates(intent, resolved, assumptions):
             return _empty_plan(
                 "A recognized fuzzy people clause could not be routed through the approved people classifier."
             )
+        fuzzy_params = fuzzy_operation.setdefault("params", {})
+        fuzzy_display = list(fuzzy_params.get("display_columns") or fuzzy_params.get("return_columns") or [])
+        for column in return_columns:
+            if column not in fuzzy_display and column not in {
+                source
+                for predicate in predicates
+                if predicate.get("semantic_column") == "email"
+                for source in predicate.get("columns") or []
+            }:
+                fuzzy_display.append(column)
+        fuzzy_params["display_columns"] = fuzzy_display
+        fuzzy_params["return_columns"] = fuzzy_display
         params.update(
             {
                 "constraint_logic": intent.get("logical_operator") or "and",
@@ -1232,6 +1306,12 @@ def _display_semantics_for_question(question_lower):
         "phone": ["phone", "phone number", "mobile"],
         "city": ["city", "cities", "location", "locations"],
         "state": ["state", "states", "province", "region"],
+        "lifetime_giving": ["lifetime giving", "total giving", "gift amount", "given", "donation"],
+        "event_count": ["event count", "events", "events attended"],
+        "last_contact_date": ["last contact", "contacted", "contact date"],
+        "updated_at": ["updated", "last updated", "modified"],
+        "created_at": ["created", "creation date"],
+        "relationship_manager": ["relationship manager", "prospect manager", "portfolio manager"],
     }
     restricts_display = bool(
         re.search(r"\bonly\s+include\b|\binclude\s+only\b|\bcolumns?\b|\bfields?\b", text)
@@ -1247,7 +1327,20 @@ def _display_semantics_for_question(question_lower):
             return list(dict.fromkeys(explicit))
 
     semantics = ["first_name", "last_name", "occupation", "employer"]
-    for semantic in ["major", "grad_year", "email", "phone", "city", "state"]:
+    for semantic in [
+        "major",
+        "grad_year",
+        "email",
+        "phone",
+        "city",
+        "state",
+        "lifetime_giving",
+        "event_count",
+        "last_contact_date",
+        "updated_at",
+        "created_at",
+        "relationship_manager",
+    ]:
         terms = field_terms[semantic]
         if _contains_word_or_phrase(question_lower, terms) and not _display_semantic_is_negated(text, terms):
             insert_at = 1 if semantic == "grad_year" else len(semantics)
@@ -1606,7 +1699,7 @@ def _base_intent(intent, target_entity, question, output_format, aggregation=Non
         "concepts": [],
         "semantic_columns": {},
         "filters": [],
-        "row_predicates": {"logic": "and", "predicates": []},
+        "row_predicates": {"logic": "and", "clauses": [], "predicates": []},
         "sort": None,
         "aggregation": aggregation,
         "desired_output": {"format": output_format, "semantic_columns": [], "limit": 100},
@@ -1732,56 +1825,117 @@ def _validate_model_row_predicates(value):
     also used independently of a dataset context in unit tests.
     """
     if value is None:
-        return {"logic": "and", "predicates": []}, []
+        return {"logic": "and", "clauses": [], "predicates": []}, []
     if not isinstance(value, dict):
-        return {"logic": "and", "predicates": []}, ["row_predicates must be an object."]
+        return {"logic": "and", "clauses": [], "predicates": []}, [
+            "row_predicates must be an object."
+        ]
+    root, errors = _validate_model_predicate_group(value, depth=1, state={"leaf_count": 0})
+    root["predicates"] = predicate_group_leaves(root)
+    return root, list(dict.fromkeys(errors))
+
+
+def _validate_model_predicate_group(value, *, depth, state):
     logic = str(value.get("logic") or "and").strip().casefold()
     errors = []
     if logic not in ALLOWED_PREDICATE_LOGIC:
         errors.append(f"Unsupported predicate logic '{logic}'.")
         logic = "and"
-    raw_predicates = value.get("predicates")
-    if not isinstance(raw_predicates, list):
-        return {"logic": logic, "predicates": []}, errors + ["row_predicates.predicates must be a list."]
+    if depth > MAX_PREDICATE_GROUP_DEPTH:
+        return {"logic": logic, "clauses": []}, [
+            f"Predicate groups may be nested at most {MAX_PREDICATE_GROUP_DEPTH} levels."
+        ]
 
-    predicates = []
-    for raw in raw_predicates[:12]:
-        if not isinstance(raw, dict):
-            errors.append("Each row predicate must be an object.")
+    raw_clauses = value.get("clauses")
+    if raw_clauses is None:
+        raw_predicates = value.get("predicates")
+        if not isinstance(raw_predicates, list):
+            return {"logic": logic, "clauses": []}, errors + [
+                "row_predicates requires a predicates or clauses list."
+            ]
+        raw_clauses = [
+            {"type": "predicate", "predicate": predicate}
+            for predicate in raw_predicates
+        ]
+    if not isinstance(raw_clauses, list):
+        return {"logic": logic, "clauses": []}, errors + [
+            "Predicate group clauses must be a list."
+        ]
+    if len(raw_clauses) > MAX_CLAUSES_PER_GROUP:
+        errors.append(f"Only {MAX_CLAUSES_PER_GROUP} clauses are allowed per predicate group.")
+
+    clauses = []
+    for raw_clause in raw_clauses[:MAX_CLAUSES_PER_GROUP]:
+        if not isinstance(raw_clause, dict):
+            errors.append("Each predicate clause must be an object.")
             continue
-        operator = str(raw.get("operator") or "").strip().casefold()
-        if operator not in ALLOWED_PREDICATE_OPERATORS:
-            errors.append(f"Unsupported row predicate operator '{operator or 'missing'}'.")
+        clause_type = str(raw_clause.get("type") or "").strip().casefold()
+        if clause_type == "group":
+            child, child_errors = _validate_model_predicate_group(
+                raw_clause,
+                depth=depth + 1,
+                state=state,
+            )
+            errors.extend(child_errors)
+            if child["clauses"]:
+                clauses.append({"type": "group", **child})
             continue
-        semantic = _clean_key(raw.get("semantic_column") or raw.get("semantic") or raw.get("column"))
-        if not semantic:
-            errors.append("A semantic_column is required for each row predicate.")
+        if clause_type != "predicate":
+            errors.append(f"Unsupported predicate clause type '{clause_type or 'missing'}'.")
             continue
-        quantifier = str(raw.get("quantifier") or "any").strip().casefold()
-        if quantifier not in ALLOWED_QUANTIFIERS:
-            errors.append(f"Unsupported predicate quantifier '{quantifier}'.")
+        if state["leaf_count"] >= MAX_PREDICATES:
+            errors.append(f"Only {MAX_PREDICATES} row predicates are allowed.")
             continue
-        raw_values = raw.get("values")
-        if raw_values is None and raw.get("value") is not None:
-            raw_values = [raw.get("value")]
-        values = _clean_text_list(raw_values, limit=20)
-        if operator not in {"exists", "missing"} and not values:
-            errors.append(f"Predicate operator '{operator}' requires at least one value.")
+        predicate, error = _validate_model_predicate(raw_clause.get("predicate"))
+        if error:
+            errors.append(error)
             continue
-        predicate = {
-            "semantic_column": semantic,
-            "operator": operator,
-            "values": values,
-            "include_subdomains": bool(raw.get("include_subdomains", True)),
-            "quantifier": quantifier,
-            "require_valid_value": bool(raw.get("require_valid_value", False)),
-            "source": "model_inferred",
-        }
-        columns = raw.get("resolved_columns") or raw.get("columns")
-        if columns is not None:
-            predicate["resolved_columns"] = _clean_text_list(columns, limit=12)
-        predicates.append(predicate)
-    return {"logic": logic, "predicates": predicates}, list(dict.fromkeys(errors))
+        state["leaf_count"] += 1
+        clauses.append({"type": "predicate", "predicate": predicate})
+    return {"logic": logic, "clauses": clauses}, errors
+
+
+def _validate_model_predicate(raw):
+    if not isinstance(raw, dict):
+        return None, "Each row predicate must be an object."
+    operator = str(raw.get("operator") or "").strip().casefold()
+    if operator not in ALLOWED_PREDICATE_OPERATORS:
+        return None, f"Unsupported row predicate operator '{operator or 'missing'}'."
+    semantic = _clean_key(raw.get("semantic_column") or raw.get("semantic") or raw.get("column"))
+    if not semantic:
+        return None, "A semantic_column is required for each row predicate."
+    quantifier = str(raw.get("quantifier") or "any").strip().casefold()
+    if quantifier not in ALLOWED_QUANTIFIERS:
+        return None, f"Unsupported predicate quantifier '{quantifier}'."
+    raw_values = raw.get("values")
+    if raw_values is None and raw.get("value") is not None:
+        raw_values = [raw.get("value")]
+    if not isinstance(raw_values, list):
+        raw_values = [] if raw_values is None else [raw_values]
+    values, value_type, error = normalize_operator_values(
+        operator,
+        raw_values[:20],
+        semantic_column=semantic,
+    )
+    if error:
+        return None, error
+    predicate = {
+        "semantic_column": semantic,
+        "operator": operator,
+        "values": values,
+        "value_type": value_type,
+        "include_subdomains": bool(raw.get("include_subdomains", True)),
+        "quantifier": quantifier,
+        "require_valid_value": bool(raw.get("require_valid_value", False)),
+        "source": "model_inferred",
+    }
+    if operator in {"between", "date_between"}:
+        predicate["lower_inclusive"] = bool(raw.get("lower_inclusive", True))
+        predicate["upper_inclusive"] = bool(raw.get("upper_inclusive", True))
+    columns = raw.get("resolved_columns") or raw.get("columns")
+    if columns is not None:
+        predicate["resolved_columns"] = _clean_text_list(columns, limit=12)
+    return predicate, ""
 
 
 def _as_list(value):

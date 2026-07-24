@@ -1,6 +1,6 @@
 import os
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, jsonify, request
 
 from app.services.analysis_executor import execute_analysis_plan
 from app.services.analysis_intent import infer_analysis_intent, intent_to_analysis_plan
@@ -59,6 +59,7 @@ def ask_dataset():
         question_text,
         context,
         analysis_intent,
+        now=current_app.config.get("PREDICATE_CURRENT_DATE"),
     )
     intent_filter_repaired_invalid_intent = bool(
         intent_filter_trace.get("intent_filter_applied")
@@ -113,6 +114,9 @@ def ask_dataset():
             "direct_count_after_intersection",
             "adjacent_count_after_intersection",
             "uncertain_count_after_intersection",
+            "numeric_parse_failure_count",
+            "date_parse_failure_count",
+            "predicate_group_depth",
         ]:
             intent_filter_trace[key] = int(result.get(key) or (result.get("metrics") or {}).get(key) or 0)
 

@@ -1387,3 +1387,149 @@ test("insightTextFromAnswer flattens summary, markdown, and metrics into snapsho
 
   assert.equal(flatten(null, "plain fallback"), "plain fallback");
 });
+
+test("datasetSchema uses the relative URL and normalizes profile metadata", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          dataset_id: "opaque id",
+          version: "schema_mapping_v1",
+          status: "needs_review",
+          mappings: {
+            employer: {
+              source_columns: ["BUS_NM"],
+              confidence: 0.82,
+              confidence_label: "medium",
+              method: "header_heuristic",
+              evidence: ["Business-name terminology."],
+            },
+          },
+          unmapped_columns: ["CUSTOM"],
+          ignored_columns: [],
+          conflicts: [{ type: "source_column_conflict", source_column: "NAME" }],
+          canonical_fields: [{
+            key: "employer", label: "Employer", category: "Employment",
+            description: "Current organization", cardinality: "single",
+            expected_types: ["text"], aliases: ["Company"],
+          }],
+          source_columns: [{
+            name: "BUS_NM", type: "text", missing_count: 0, unique_count: 2,
+            sample_values: ["Spotify", "Google"],
+          }],
+        }),
+      };
+    },
+  });
+
+  const schema = await Alumni.datasetSchema("opaque id");
+  assert.equal(calls[0].url, "/api/datasets/opaque%20id/schema");
+  assert.equal(schema.status, "needs_review");
+  assert.deepEqual(plain(schema.mappings.employer.source_columns), ["BUS_NM"]);
+  assert.equal(schema.canonical_fields[0].cardinality, "single");
+  assert.deepEqual(plain(schema.source_columns[0].sample_values), ["Spotify", "Google"]);
+});
+
+test("saveDatasetSchema PUTs complete mappings including multiple email columns", async () => {
+  const calls = [];
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "/backend/" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        json: async () => ({
+          dataset_id: "ds-1",
+          status: "confirmed",
+          mappings: {
+            email: { source_columns: ["PREF_EML", "ALT_EML"], confidence: 1, user_confirmed: true },
+          },
+        }),
+      };
+    },
+  });
+  const payload = {
+    status: "confirmed",
+    mappings: { email: { source_columns: ["PREF_EML", "ALT_EML"] } },
+    ignored_columns: ["NOTES"],
+  };
+  const saved = await Alumni.saveDatasetSchema("ds-1", payload);
+
+  assert.equal(calls[0].url, "/backend/api/datasets/ds-1/schema");
+  assert.equal(calls[0].options.method, "PUT");
+  assert.deepEqual(JSON.parse(calls[0].options.body), payload);
+  assert.deepEqual(plain(saved.mappings.email.source_columns), ["PREF_EML", "ALT_EML"]);
+});
+
+test("inferDatasetSchema POSTs options and surfaces backend errors", async () => {
+  const calls = [];
+  let fail = false;
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (fail) return { ok: false, status: 400, json: async () => ({ error: "Invalid inference options." }) };
+      return { ok: true, json: async () => ({ dataset_id: "ds-1", status: "unreviewed", mappings: {} }) };
+    },
+  });
+
+  await Alumni.inferDatasetSchema("ds-1", { reset_confirmed: false, use_model: true });
+  assert.equal(calls[0].url, "/api/datasets/ds-1/schema/infer");
+  assert.equal(calls[0].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { reset_confirmed: false, use_model: true });
+  fail = true;
+  await assert.rejects(() => Alumni.inferDatasetSchema("ds-1", {}), /Invalid inference options/);
+});
+
+test("schema adapters tolerate older responses and demo mode never fetches", async () => {
+  let calls = 0;
+  const Demo = loadApi({
+    config: { useApi: false },
+    fetchImpl: async () => { calls += 1; throw new Error("unexpected fetch"); },
+  });
+  const schema = await Demo.datasetSchema("legacy");
+  const inferred = await Demo.inferDatasetSchema("legacy", {});
+  assert.equal(calls, 0);
+  assert.equal(schema.dataset_id, "legacy");
+  assert.equal(schema.status, "unreviewed");
+  assert.equal(inferred.status, "unreviewed");
+  await assert.rejects(() => Demo.saveDatasetSchema("legacy", {}), /API mode/);
+
+  const Api = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => { throw new Error("unused"); },
+  });
+  const normalized = Api._test.normalizeDatasetSchema({
+    dataset_id: "old",
+    profile: { mappings: { email: ["bad legacy shape"] } },
+  }, "old");
+  assert.equal(normalized.status, "unreviewed");
+  assert.deepEqual(plain(normalized.canonical_fields), []);
+  assert.deepEqual(plain(normalized.source_columns), []);
+});
+
+test("dataset list normalizes schema badges and older missing schema status", async () => {
+  const Alumni = loadApi({
+    config: { useApi: true, apiBase: "" },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        datasets: [
+          { dataset_id: "ready", schema_status: "confirmed", schema_mapped_count: 6 },
+          { dataset_id: "review", schema_status: "needs_review", schema_conflict_count: 2 },
+          { dataset_id: "old" },
+        ],
+      }),
+    }),
+  });
+  const datasets = await Alumni.datasets();
+  assert.equal(datasets[0].schema_status, "confirmed");
+  assert.equal(datasets[0].schema_mapped_count, 6);
+  assert.equal(datasets[1].schema_status, "needs_review");
+  assert.equal(datasets[1].schema_conflict_count, 2);
+  assert.equal(datasets[2].schema_status, "not_analyzed");
+});

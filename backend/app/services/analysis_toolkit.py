@@ -5,7 +5,12 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from app.services.column_resolver import CANONICAL_FIELD_ALIASES, resolve_by_aliases
+from app.services.canonical_schema import CANONICAL_FIELD_REGISTRY
+from app.services.column_resolver import (
+    CANONICAL_FIELD_ALIASES,
+    PERSON_DISPLAY_HEADERS,
+    resolve_canonical_column,
+)
 from app.services.industry_matching import (
     budgeted_model_classifier,
     classify_employer_status,
@@ -21,10 +26,16 @@ from app.services.email_utils import extract_email_tokens
 from app.services.intent_filter import (
     evaluate_predicate_row,
     matching_email_addresses,
+    predicate_group_depth,
+    predicate_group_from_params,
+    predicate_group_leaves,
+    predicate_group_for_execution,
+    predicate_parse_failure_counts,
     row_satisfies_predicate_group,
     validate_filter_predicate_params,
 )
 from app.services.spreadsheet_service import to_json_safe
+from app.services.schema_profile import canonical_to_source
 from app.utils.text_utils import (
     clamp_limit as _clamp_limit,
     contains_word_or_phrase as _contains_word_or_phrase,
@@ -155,16 +166,25 @@ def build_dataset_context(df, metadata=None, sample_limit=5):
 
         columns.append(column_context)
 
-    return to_json_safe(
-        {
+    profile = metadata.get("schema_profile")
+    if not isinstance(profile, dict):
+        profile = getattr(df, "attrs", {}).get("schema_profile")
+    active_mapping = canonical_to_source(profile, df.columns)
+    context = {
             "dataset_id": metadata.get("dataset_id"),
             "filename": metadata.get("original_filename") or metadata.get("filename"),
             "row_count": int(df.shape[0]),
             "column_count": int(df.shape[1]),
             "columns": columns,
             "sample_rows": df.head(sample_limit).replace({np.nan: None}).to_dict(orient="records"),
+    }
+    if isinstance(profile, dict):
+        context["schema_mapping"] = {
+            "status": profile.get("status") or "unreviewed",
+            "version": profile.get("version"),
+            "canonical_to_source": active_mapping,
         }
-    )
+    return to_json_safe(context)
 
 
 def execute_operation(df, operation, assumptions=None):
@@ -345,15 +365,12 @@ def _op_filter_predicates(df, params, assumptions):
     if not valid:
         return _error_result("filter_predicates", error)
 
-    logic = str(params.get("logic") or "and").casefold()
-    predicates = []
-    for raw in params.get("predicates") or []:
-        predicate = dict(raw)
-        predicate["columns"] = list(predicate.get("columns") or predicate.get("resolved_columns") or [])
-        predicates.append(predicate)
+    predicate_group = predicate_group_for_execution(predicate_group_from_params(params))
+    logic = str(predicate_group.get("logic") or "and").casefold()
+    predicates = predicate_group_leaves(predicate_group)
 
     primary_mask = pd.Series(
-        [row_satisfies_predicate_group(row, logic, predicates) for _, row in df.iterrows()],
+        [row_satisfies_predicate_group(row, predicate_group) for _, row in df.iterrows()],
         index=df.index,
         dtype=bool,
     )
@@ -364,7 +381,7 @@ def _op_filter_predicates(df, params, assumptions):
     verified_positions = [
         position
         for position, (_index, row) in enumerate(primary_matches.iterrows())
-        if row_satisfies_predicate_group(row, logic, predicates)
+        if row_satisfies_predicate_group(row, predicate_group)
     ]
     verified = primary_matches.iloc[verified_positions].copy()
     post_verification_removed_count = int(primary_matches.shape[0] - verified.shape[0])
@@ -394,11 +411,21 @@ def _op_filter_predicates(df, params, assumptions):
             )
             for _, row in verified.iterrows()
         ]
+    sort_spec = params.get("sort") if isinstance(params.get("sort"), dict) else None
+    if sort_spec and sort_spec.get("column") in verified.columns:
+        ascending = str(sort_spec.get("direction") or "desc").casefold() in {"asc", "ascending"}
+        verified = _sort_dataframe(verified, sort_spec["column"], ascending)
 
     resolved_filter_columns = list(
         dict.fromkeys(column for predicate in predicates for column in predicate.get("columns") or [])
     )
     invalid_email_value_count = _invalid_email_row_count(df, email_predicates)
+    numeric_parse_failure_count = 0
+    date_parse_failure_count = 0
+    for _, row in df.iterrows():
+        numeric_failures, date_failures = predicate_parse_failure_counts(row, predicate_group)
+        numeric_parse_failure_count += numeric_failures
+        date_parse_failure_count += date_failures
     predicate_metrics = {
         "total_rows": int(df.shape[0]),
         "rows_matched": int(verified.shape[0]),
@@ -406,8 +433,12 @@ def _op_filter_predicates(df, params, assumptions):
         "predicate_rows_matched": int(verified.shape[0]),
         "predicate_count": len(predicates),
         "predicate_logic": logic,
+        "predicate_group_depth": predicate_group_depth(predicate_group),
+        "intent_filter_operators": [predicate.get("operator") for predicate in predicates],
         "resolved_filter_columns": resolved_filter_columns,
         "invalid_email_value_count": invalid_email_value_count,
+        "numeric_parse_failure_count": numeric_parse_failure_count,
+        "date_parse_failure_count": date_parse_failure_count,
         "post_verification_removed_count": post_verification_removed_count,
     }
 
@@ -456,12 +487,12 @@ def _op_filter_predicates(df, params, assumptions):
     displayed = verified.head(limit)
     rows = [
         {
-            _canonical_display_header(column): _row_value_for_display(row, column)
+            _canonical_display_header(column, verified): _row_value_for_display(row, column)
             for column in return_columns
         }
         for _, row in displayed.iterrows()
     ]
-    display_columns = [_canonical_display_header(column) for column in return_columns]
+    display_columns = [_canonical_display_header(column, verified) for column in return_columns]
     rows_returned = len(rows)
     predicate_metrics.update(
         {
@@ -486,7 +517,11 @@ def _op_filter_predicates(df, params, assumptions):
             "intent_filter_applied": True,
             "predicate_logic": logic,
             "predicate_count": len(predicates),
+            "predicate_group_depth": predicate_group_depth(predicate_group),
+            "intent_filter_operators": [predicate.get("operator") for predicate in predicates],
             "resolved_filter_columns": resolved_filter_columns,
+            "numeric_parse_failure_count": numeric_parse_failure_count,
+            "date_parse_failure_count": date_parse_failure_count,
             "post_verification_removed_count": post_verification_removed_count,
             "displayed_count": rows_returned,
             "display_columns": display_columns,
@@ -509,6 +544,7 @@ def _validate_composite_people_filter_params(params):
     predicate_params = {
         "logic": params.get("logic") or "and",
         "predicates": params.get("predicates"),
+        "predicate_group": params.get("predicate_group"),
     }
     return validate_filter_predicate_params(predicate_params)
 
@@ -525,7 +561,11 @@ def _op_composite_people_filter(df, params, assumptions):
     if not valid:
         return _error_result("composite_people_filter", error)
     predicate_valid, predicate_error = validate_filter_predicate_params(
-        {"logic": params.get("logic") or "and", "predicates": params.get("predicates")},
+        {
+            "logic": params.get("logic") or "and",
+            "predicates": params.get("predicates"),
+            "predicate_group": params.get("predicate_group"),
+        },
         available_columns=df.columns,
     )
     if not predicate_valid:
@@ -536,12 +576,9 @@ def _op_composite_people_filter(df, params, assumptions):
     working[internal_column] = list(range(len(working)))
     row_by_id = {int(row[internal_column]): row for _, row in working.iterrows()}
 
-    predicates = []
-    for raw in params.get("predicates") or []:
-        predicate = dict(raw)
-        predicate["columns"] = list(predicate.get("columns") or predicate.get("resolved_columns") or [])
-        predicates.append(predicate)
-    predicate_logic = str(params.get("logic") or "and").casefold()
+    predicate_group = predicate_group_for_execution(predicate_group_from_params(params))
+    predicates = predicate_group_leaves(predicate_group)
+    predicate_logic = str(predicate_group.get("logic") or "and").casefold()
     constraint_logic = str(params.get("constraint_logic") or "and").casefold()
     email_predicates = [
         predicate
@@ -551,6 +588,12 @@ def _op_composite_people_filter(df, params, assumptions):
     filter_columns = list(
         dict.fromkeys(column for predicate in predicates for column in predicate.get("columns") or [])
     )
+    numeric_parse_failure_count = 0
+    date_parse_failure_count = 0
+    for _, row in working.iterrows():
+        numeric_failures, date_failures = predicate_parse_failure_counts(row, predicate_group)
+        numeric_parse_failure_count += numeric_failures
+        date_parse_failure_count += date_failures
 
     people_operation = params["people_operation"]
     people_params = dict(people_operation.get("params") or {})
@@ -576,13 +619,13 @@ def _op_composite_people_filter(df, params, assumptions):
     matching_email_by_id = {}
     primary_ids = []
     for _, row in working.iterrows():
-        if row_satisfies_predicate_group(row, predicate_logic, predicates):
+        if row_satisfies_predicate_group(row, predicate_group):
             row_id = int(row[internal_column])
             primary_ids.append(row_id)
     verification_removed = 0
     for row_id in primary_ids:
         row = row_by_id[row_id]
-        if not row_satisfies_predicate_group(row, predicate_logic, predicates):
+        if not row_satisfies_predicate_group(row, predicate_group):
             verification_removed += 1
             continue
         exact_ids.add(row_id)
@@ -663,7 +706,7 @@ def _op_composite_people_filter(df, params, assumptions):
                 continue
             source_row = row_by_id.get(row_id)
             if exact_match and source_row is not None and not row_satisfies_predicate_group(
-                source_row, predicate_logic, predicates
+                source_row, predicate_group
             ):
                 verification_removed += 1
                 continue
@@ -765,9 +808,13 @@ def _op_composite_people_filter(df, params, assumptions):
             "exact_predicate_match_count": len(exact_ids),
             "predicate_count": len(predicates),
             "predicate_logic": predicate_logic,
+            "predicate_group_depth": predicate_group_depth(predicate_group),
+            "intent_filter_operators": [predicate.get("operator") for predicate in predicates],
             "constraint_logic": constraint_logic,
             "resolved_filter_columns": filter_columns,
             "invalid_email_value_count": _invalid_email_row_count(df, email_predicates),
+            "numeric_parse_failure_count": numeric_parse_failure_count,
+            "date_parse_failure_count": date_parse_failure_count,
             "post_verification_removed_count": verification_removed,
             "fuzzy_direct_count_before_predicates": int(people_result.get("direct_count") or 0),
             "fuzzy_adjacent_count_before_predicates": int(people_result.get("adjacent_count") or 0),
@@ -830,8 +877,12 @@ def _op_composite_people_filter(df, params, assumptions):
             "exact_predicate_match_count": len(exact_ids),
             "predicate_count": len(predicates),
             "predicate_logic": predicate_logic,
+            "predicate_group_depth": predicate_group_depth(predicate_group),
+            "intent_filter_operators": [predicate.get("operator") for predicate in predicates],
             "constraint_logic": constraint_logic,
             "resolved_filter_columns": filter_columns,
+            "numeric_parse_failure_count": numeric_parse_failure_count,
+            "date_parse_failure_count": date_parse_failure_count,
             "post_verification_removed_count": verification_removed,
             "fuzzy_direct_count_before_predicates": int(people_result.get("direct_count") or 0),
             "fuzzy_adjacent_count_before_predicates": int(people_result.get("adjacent_count") or 0),
@@ -2004,7 +2055,7 @@ def _people_display_column_specs(df, params):
     for column in requested_columns:
         if column in existing_sources or column == linkedin_source or _is_debug_column(column):
             continue
-        header = _canonical_display_header(column)
+        header = _canonical_display_header(column, df)
         if _normalize_compact(header) in debug_sources:
             continue
         specs.append({"header": header, "source": column})
@@ -2019,7 +2070,7 @@ def _people_display_column_specs(df, params):
 
 def _resolved_display_column(df, semantic):
     if semantic in CANONICAL_FIELD_ALIASES:
-        column = resolve_by_aliases(df, CANONICAL_FIELD_ALIASES[semantic])
+        column = resolve_canonical_column(df, semantic)
         if column:
             return column
         if semantic in {"first_name", "last_name", "linkedin_url"}:
@@ -2028,7 +2079,20 @@ def _resolved_display_column(df, semantic):
     return column
 
 
-def _canonical_display_header(column):
+def _canonical_display_header(column, df=None):
+    if df is not None:
+        profile = getattr(df, "attrs", {}).get("schema_profile")
+        active = canonical_to_source(profile, getattr(df, "columns", []))
+        for canonical_field, sources in active.items():
+            if str(column) in sources:
+                if canonical_field in PERSON_DISPLAY_HEADERS:
+                    return PERSON_DISPLAY_HEADERS[canonical_field]
+                definition = CANONICAL_FIELD_REGISTRY.get(canonical_field)
+                if definition and (
+                    canonical_field == "full_name"
+                    or (isinstance(profile, dict) and profile.get("status") == "confirmed")
+                ):
+                    return definition["label"]
     normalized = _normalize_compact(column)
     if normalized in {"firstname", "givenname"}:
         return "First Name"
@@ -2287,6 +2351,18 @@ def _resolve_column(df, requested):
     if requested is None:
         return None, []
     requested_text = str(requested).strip()
+    requested_semantic = next(
+        (
+            key
+            for key in CANONICAL_FIELD_ALIASES
+            if _normalize_compact(key) == _normalize_compact(requested_text)
+        ),
+        None,
+    )
+    if requested_semantic:
+        mapped = resolve_canonical_column(df, requested_semantic)
+        if mapped:
+            return mapped, []
     if requested_text in df.columns:
         return requested_text, []
     for column in df.columns:

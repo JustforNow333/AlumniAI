@@ -11,7 +11,8 @@ function base() {
 }
 
 /* ---- build the UI's dataset object from /api/upload's summary ---- */
-function dsFromSummary(filename, datasetId, summary) {
+function dsFromSummary(filename, datasetId, summary, metadata) {
+  metadata = metadata && typeof metadata === "object" ? metadata : {};
   const columns = summary.column_names || [];
   const types = summary.column_types || {};
   const missing = summary.missing_values || {};
@@ -30,6 +31,8 @@ function dsFromSummary(filename, datasetId, summary) {
     name: filename, dataset_id: datasetId, columns, meta, rows: preview,
     rows_n: summary.rows || 0, cols_n: summary.columns || columns.length,
     totalMissing: Object.values(missing).reduce((a, b) => a + (b || 0), 0),
+    schema_status: metadata.schema_status || (metadata.schema_profile && metadata.schema_profile.status) || "not_analyzed",
+    schema_version: metadata.schema_version || (metadata.schema_profile && metadata.schema_profile.version) || null,
   };
 }
 
@@ -274,7 +277,7 @@ async function apiUpload(file) {
   if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
   const datasetId = datasetIdFromUpload(data);
   if (!datasetId) throw new Error("Upload succeeded, but the response did not include dataset_id.");
-  return dsFromSummary(data.filename, datasetId, data.summary || {});
+  return dsFromSummary(data.filename, datasetId, data.summary || {}, data.metadata || {});
 }
 async function apiPreview(datasetId) {
   if (!datasetId) throw new Error("Cannot load preview because dataset_id is missing.");
@@ -318,6 +321,12 @@ function normalizeDatasetEntry(entry) {
     columns: Array.isArray(entry.columns) ? entry.columns : [],
     file_type: entry.file_type || "",
     status: entry.status === "missing" ? "missing" : "ready",
+    schema_status: ["unreviewed", "needs_review", "confirmed"].includes(entry.schema_status)
+      ? entry.schema_status : "not_analyzed",
+    schema_mapped_count: Number(entry.schema_mapped_count) || 0,
+    schema_unmapped_count: Number(entry.schema_unmapped_count) || 0,
+    schema_conflict_count: Number(entry.schema_conflict_count) || 0,
+    schema_version: entry.schema_version || null,
   };
 }
 async function apiDatasets() {
@@ -343,6 +352,96 @@ async function apiDeleteDataset(datasetId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Delete failed (${res.status})`);
   return data;
+}
+function normalizeCanonicalField(field) {
+  if (!field || typeof field !== "object" || !field.key) return null;
+  return {
+    key: cleanText(field.key),
+    label: cleanText(field.label || field.key),
+    description: cleanText(field.description || ""),
+    category: cleanText(field.category || "Other"),
+    cardinality: field.cardinality === "multiple" ? "multiple" : "single",
+    expected_types: Array.isArray(field.expected_types) ? field.expected_types.map(cleanText).filter(Boolean) : [],
+    aliases: Array.isArray(field.aliases) ? field.aliases.map(cleanText).filter(Boolean) : [],
+  };
+}
+function normalizeSchemaMapping(key, mapping) {
+  if (!mapping || typeof mapping !== "object") return null;
+  const sources = Array.isArray(mapping.source_columns) ? mapping.source_columns.map(cleanText).filter(Boolean) : [];
+  if (!sources.length) return null;
+  const confidence = Number(mapping.confidence);
+  return {
+    canonical_field: cleanText(key),
+    source_columns: sources,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    confidence_label: ["high", "medium", "low"].includes(mapping.confidence_label) ? mapping.confidence_label : "low",
+    method: cleanText(mapping.method || ""),
+    user_confirmed: !!mapping.user_confirmed,
+    evidence: Array.isArray(mapping.evidence) ? mapping.evidence.map(cleanText).filter(Boolean).slice(0, 5) : [],
+  };
+}
+function normalizeDatasetSchema(data, datasetId) {
+  data = data && typeof data === "object" ? data : {};
+  const profile = data.profile && typeof data.profile === "object" ? data.profile : data;
+  const mappings = {};
+  const rawMappings = profile.mappings && typeof profile.mappings === "object" ? profile.mappings : {};
+  for (const [key, mapping] of Object.entries(rawMappings)) {
+    const normalized = normalizeSchemaMapping(key, mapping);
+    if (normalized) mappings[key] = normalized;
+  }
+  const sourceColumns = Array.isArray(data.source_columns) ? data.source_columns.map(item => {
+    if (typeof item === "string") return { name: cleanText(item), type: "", missing_count: 0, unique_count: 0, sample_values: [] };
+    if (!item || typeof item !== "object" || !item.name) return null;
+    return {
+      name: cleanText(item.name),
+      type: cleanText(item.type || ""),
+      missing_count: Number(item.missing_count) || 0,
+      unique_count: Number(item.unique_count) || 0,
+      sample_values: Array.isArray(item.sample_values) ? item.sample_values.map(cleanText).filter(Boolean).slice(0, 3) : [],
+    };
+  }).filter(Boolean) : [];
+  return {
+    dataset_id: cleanText(data.dataset_id || datasetId || ""),
+    version: cleanText(profile.version || ""),
+    status: ["unreviewed", "needs_review", "confirmed"].includes(profile.status) ? profile.status : "unreviewed",
+    generated_at: profile.generated_at || null,
+    updated_at: profile.updated_at || null,
+    confirmed_at: profile.confirmed_at || null,
+    mappings,
+    unmapped_columns: Array.isArray(profile.unmapped_columns) ? profile.unmapped_columns.map(cleanText).filter(Boolean) : [],
+    ignored_columns: Array.isArray(profile.ignored_columns) ? profile.ignored_columns.map(cleanText).filter(Boolean) : [],
+    conflicts: Array.isArray(profile.conflicts) ? profile.conflicts.filter(item => item && typeof item === "object") : [],
+    warnings: Array.isArray(profile.warnings) ? profile.warnings.map(cleanText).filter(Boolean) : [],
+    canonical_fields: Array.isArray(data.canonical_fields) ? data.canonical_fields.map(normalizeCanonicalField).filter(Boolean) : [],
+    source_columns: sourceColumns,
+  };
+}
+async function apiDatasetSchema(datasetId) {
+  if (!datasetId) throw new Error("Cannot load schema because dataset_id is missing.");
+  const res = await fetch(base() + `/api/datasets/${encodeURIComponent(datasetId)}/schema`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not load schema (${res.status})`);
+  return normalizeDatasetSchema(data, datasetId);
+}
+async function apiSaveDatasetSchema(datasetId, payload) {
+  if (!datasetId) throw new Error("Cannot save schema because dataset_id is missing.");
+  const res = await fetch(base() + `/api/datasets/${encodeURIComponent(datasetId)}/schema`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not save schema (${res.status})`);
+  return normalizeDatasetSchema(data, datasetId);
+}
+async function apiInferDatasetSchema(datasetId, options) {
+  if (!datasetId) throw new Error("Cannot infer schema because dataset_id is missing.");
+  const res = await fetch(base() + `/api/datasets/${encodeURIComponent(datasetId)}/schema/infer`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not re-run schema detection (${res.status})`);
+  return normalizeDatasetSchema(data, datasetId);
 }
 /* ---- saved insights (manually saved answer snapshots; not history) ---- */
 function defaultInsightTitle(question) {
@@ -582,6 +681,18 @@ window.Alumni = {
     if (!cfg().useApi) return Promise.reject(new Error("Dataset library requires API mode."));
     return apiDeleteDataset(datasetId);
   },
+  datasetSchema(datasetId) {
+    if (!cfg().useApi) return Promise.resolve(normalizeDatasetSchema({ dataset_id: datasetId, status: "unreviewed" }, datasetId));
+    return apiDatasetSchema(datasetId);
+  },
+  saveDatasetSchema(datasetId, payload) {
+    if (!cfg().useApi) return Promise.reject(new Error("Schema mapping requires API mode."));
+    return apiSaveDatasetSchema(datasetId, payload);
+  },
+  inferDatasetSchema(datasetId, options) {
+    if (!cfg().useApi) return Promise.resolve(normalizeDatasetSchema({ dataset_id: datasetId, status: "unreviewed" }, datasetId));
+    return apiInferDatasetSchema(datasetId, options);
+  },
   insights(datasetId) { return cfg().useApi ? apiInsights(datasetId) : Promise.resolve([]); },
   insight(insightId) {
     if (!cfg().useApi) return Promise.reject(new Error("Saved insights require API mode."));
@@ -638,6 +749,7 @@ window.Alumni = {
     normalizeHistoryResponsePayload,
     buildAskResponsePayload,
     normalizeDatasetEntry,
+    normalizeDatasetSchema,
     normalizeInsightEntry,
     normalizeHistoryEntry,
     defaultInsightTitle,

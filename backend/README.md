@@ -74,6 +74,78 @@ Uploaded CSV/XLSX files are stored locally in `backend/uploads/`. Dataset metada
 
 These files are local development artifacts and are ignored by git. Existing `dataset_id`s survive backend restarts as long as the uploaded files and metadata JSON remain on disk.
 
+### Schema profiles
+
+Dataset registry entries can contain a compact `schema_profile` with version,
+review status, canonical-to-source mappings, confidence/method/evidence,
+ignored and unmapped columns, conflicts, and timestamps. Raw sample values are
+not persisted in the registry. Confirmed mappings and high-confidence saved
+inferences enter the existing intent/plan/whitelisted-operation pipeline
+without renaming columns or mutating the uploaded file.
+
+Schema endpoints:
+
+```text
+GET  /api/datasets/<dataset_id>/schema
+PUT  /api/datasets/<dataset_id>/schema
+POST /api/datasets/<dataset_id>/schema/infer
+```
+
+`GET` lazily infers and atomically persists a profile for older datasets.
+`PUT` accepts a complete validated mapping update:
+
+```json
+{
+  "status": "confirmed",
+  "mappings": {
+    "employer": {"source_columns": ["BUSINESS_NAME_1"]},
+    "email": {
+      "source_columns": ["CONSTITUENT_PREFERRED_EMAIL", "ALTERNATE_EMAIL"]
+    }
+  },
+  "ignored_columns": ["INTERNAL_NOTES"]
+}
+```
+
+`POST .../schema/infer` accepts `{"reset_confirmed": false, "use_model": true}`.
+Confirmed mappings are preserved unless reset is explicitly requested. Model
+suggestions are optional and receive only capped column metadata and safe sample
+values; deterministic inference works without `OPENAI_API_KEY`.
+
+## Exact predicates
+
+Natural-language constraints are normalized into typed predicates and executed
+only by whitelisted pandas operations. Supported operators are:
+
+```text
+exists, missing, equals, not_equals, contains, not_contains
+email_domain_in, email_domain_not_in
+greater_than, greater_than_or_equal, less_than, less_than_or_equal, between
+in, not_in
+date_before, date_after, date_between
+starts_with, ends_with
+```
+
+Numeric parsing accepts native numbers and common currency forms such as
+`5,000`, `$5,000`, and `$5,000.00`; invalid text and blanks are not zero.
+Dates accept native pandas/Python values, ISO and common U.S. strings, and
+Excel serial dates. They normalize to calendar dates before comparison.
+`before` and `after` are strict. Numeric/date `between` includes both endpoints
+unless explicit inclusivity flags say otherwise. Relative windows such as
+“within the past 90 days” resolve once per request and record the ISO boundary
+in the intent-filter trace.
+
+Membership and prefix/suffix checks are case-insensitive and whitespace
+normalized. Missing or unparseable values do not satisfy comparisons,
+`not_in`, or other negative predicates by default.
+
+Legacy `{"logic":"and","predicates":[...]}` roots remain accepted. Grouped
+queries use recursive `clauses` with only `and`/`or`, at most three levels,
+twelve leaf predicates, and twelve clauses per group. Exact predicates and
+fuzzy people classification run independently over the original rows and are
+then composed, so questions such as “Find tech alumni who graduated after
+2020 and have a non-Cornell email” preserve every clause.
+
 ## Automated Tests
 
 Install dependencies and run pytest:
@@ -115,3 +187,24 @@ python -m evals.run_evals --mode smoke-live
 execution metadata, so deterministic cases can disallow model calls while broad
 product or direct-classifier cases can allow or require them. Reports include
 model-call tracing, answer source, scoring source, and failure categories.
+
+Schema-aware eval cases may define `schema_mapping`. Run the focused opaque
+header cases with:
+
+```bash
+python -m evals.run_evals --mode offline \
+  --dataset evals/datasets/opaque_schema_alumni.csv \
+  --app-view evals/generated/opaque_schema_alumni_app_view.csv \
+  --cases evals/schema_cases.jsonl \
+  --category schema_mapping
+```
+
+Run the expanded exact-predicate cases with:
+
+```bash
+python -m evals.run_evals --mode offline \
+  --dataset evals/datasets/expanded_predicates.csv \
+  --app-view evals/generated/expanded_predicates_app_view.csv \
+  --cases evals/expanded_predicate_cases.jsonl \
+  --category expanded_predicates
+```

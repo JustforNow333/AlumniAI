@@ -129,6 +129,91 @@ def test_compute_expected_rows_supports_typed_email_domain_quantifiers():
     assert no_cornell["first_name"].tolist() == ["External"]
 
 
+def test_compute_expected_rows_supports_expanded_typed_predicates():
+    gold_df = pd.DataFrame(
+        {
+            "first_name": ["A", "B", "C", "D"],
+            "last_name": ["One", "Two", "Three", "Four"],
+            "giving": ["$5,000", "$5,001", "bad", "$10,000"],
+            "year": [2018, 2020, 2023, 2024],
+            "city": ["New York", "Boston", "", "Chicago"],
+            "contact": ["2024-12-31", "2025-01-01", "bad", "2026-01-01"],
+            "employer": ["Morgan Stanley", "J.P. Morgan", "Google", "OpenAI"],
+            "title": ["Software Engineer", "Engineering Manager", "Analyst", "Data Engineer"],
+        }
+    )
+
+    assert compute_expected_rows(
+        {"expected_filter": {"column": "giving", "op": "greater_than", "value": 5000}},
+        gold_df,
+    )["first_name"].tolist() == ["B", "D"]
+    assert compute_expected_rows(
+        {
+            "expected_filter": {
+                "column": "year",
+                "op": "between",
+                "values": [2018, 2023],
+            }
+        },
+        gold_df,
+    )["first_name"].tolist() == ["A", "B", "C"]
+    assert compute_expected_rows(
+        {
+            "expected_filter": {
+                "column": "city",
+                "op": "not_in",
+                "values": ["New York", "Boston"],
+            }
+        },
+        gold_df,
+    )["first_name"].tolist() == ["D"]
+    assert compute_expected_rows(
+        {
+            "expected_filter": {
+                "column": "contact",
+                "op": "date_before",
+                "value": "2025-01-01",
+            }
+        },
+        gold_df,
+    )["first_name"].tolist() == ["A"]
+    assert compute_expected_rows(
+        {
+            "expected_filter": {
+                "column": "employer",
+                "op": "starts_with",
+                "value": "Morgan",
+            }
+        },
+        gold_df,
+    )["first_name"].tolist() == ["A"]
+    assert compute_expected_rows(
+        {
+            "expected_filter": {
+                "column": "title",
+                "op": "ends_with",
+                "value": "Engineer",
+            }
+        },
+        gold_df,
+    )["first_name"].tolist() == ["A", "D"]
+
+
+def test_expanded_predicate_cases_have_deterministic_contract_metadata():
+    cases = load_cases(
+        Path(__file__).resolve().parents[1] / "expanded_predicate_cases.jsonl"
+    )
+    assert len(cases) == 12
+    assert {case["category"] for case in cases} == {"expanded_predicates"}
+    for case in cases:
+        assert case["expected_predicate_operators"]
+        assert case["expected_predicate_count"] >= 1
+        assert case["expected_group_depth"] in {1, 2}
+        assert case["execution"]["model_calls"] == "disallowed"
+    assert any(case.get("fuzzy_clause_must_be_preserved") for case in cases)
+    assert any(case.get("expected_range_inclusivity") == [True, True] for case in cases)
+
+
 def test_compute_precision_recall_handles_empty_sets():
     assert compute_precision_recall(["Neil Wusu"], ["Neil Wusu", "Sarah Patel"]) == (1.0, 0.5)
     assert compute_precision_recall([], ["Neil Wusu"]) == (1.0, 0.0)

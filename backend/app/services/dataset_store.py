@@ -8,6 +8,8 @@ import pandas as pd
 from flask import current_app, has_app_context
 from werkzeug.utils import secure_filename
 
+from app.services.schema_inference import infer_schema_profile
+from app.services.schema_profile import normalize_profile_for_storage, schema_summary
 from app.services.spreadsheet_service import clean_dataframe
 
 
@@ -193,6 +195,7 @@ def create_dataset_metadata(dataset_id, file_metadata, df):
         "row_count": int(df.shape[0]),
         "column_count": int(df.shape[1]),
         "columns": list(df.columns),
+        "schema_profile": infer_schema_profile(df),
     }
 
 
@@ -244,7 +247,7 @@ def dataset_public_metadata(metadata):
     except (OSError, DatasetStoreError):
         status = "missing"
     original_filename = metadata.get("original_filename") or ""
-    return {
+    public = {
         "dataset_id": metadata.get("dataset_id"),
         "display_name": metadata.get("display_name") or original_filename or "Untitled dataset",
         "original_filename": original_filename,
@@ -256,6 +259,8 @@ def dataset_public_metadata(metadata):
         "file_type": metadata.get("file_type"),
         "status": status,
     }
+    public.update(schema_summary(metadata.get("schema_profile")))
+    return public
 
 
 def list_datasets():
@@ -312,7 +317,29 @@ def load_dataset_dataframe(dataset_id):
         raise DatasetNotFoundError("Dataset not found.")
 
     df = read_dataframe_from_path(metadata.get("file_path"), metadata.get("file_type"))
+    profile = normalize_profile_for_storage(metadata.get("schema_profile"), df.columns)
+    if profile:
+        df.attrs["schema_profile"] = profile
     return df, metadata
+
+
+def save_dataset_schema_profile(dataset_id, profile, source_columns=None):
+    """Atomically replace one dataset's nested schema profile."""
+    registry = load_dataset_registry()
+    metadata = registry.get(str(dataset_id))
+    if metadata is None:
+        raise DatasetNotFoundError("Dataset not found.")
+    normalized = normalize_profile_for_storage(
+        profile,
+        list(source_columns)
+        if source_columns is not None
+        else (metadata.get("columns") or []),
+    )
+    if normalized is None:
+        raise DatasetValidationError("Schema profile is invalid.")
+    metadata["schema_profile"] = normalized
+    save_dataset_registry(registry)
+    return normalized
 
 
 def _is_within(candidate, root):

@@ -1,8 +1,10 @@
-# AI Spreadsheet Analyst
+# AlumniAI
 
-Upload a CSV or Excel spreadsheet, preview it, and ask natural-language questions backed by safe pandas analysis operations.
+AlumniAI analyzes CSV and Excel alumni exports with safe, whitelisted pandas operations. It includes persistent datasets, schema mapping for unfamiliar headers, natural-language queries, structured answers, saved insights, and query history.
 
-## Start The App
+Exact filters cover missing values, equality, text and email-domain checks, numeric comparisons and ranges, set membership, dates, and string prefixes/suffixes. They can be grouped with bounded `and`/`or` logic and combined with fuzzy alumni classification.
+
+## Run
 
 From the project root:
 
@@ -10,50 +12,31 @@ From the project root:
 ./start_app.sh
 ```
 
-On Windows, double-click `start_app.bat` or run:
+On Windows, run `start_app.bat`. Open `http://localhost:5000`.
 
-```bat
-start_app.bat
-```
-
-Then open `http://localhost:5000`.
-
-The Flask backend serves the frontend from `/`, so one command starts the backend, frontend, and app experience together. API routes remain under `/api/*`.
-
-## Setup
-
-Install backend dependencies first if the virtualenv is not already set up:
+Install dependencies with:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
-On Windows PowerShell:
+`OPENAI_API_KEY` in `backend/.env` is optional. Without it, deterministic intent inference and answer formatting remain available.
 
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+## Data and schema mapping
+
+Uploads are stored in `backend/uploads/`; metadata is stored in `backend/data/datasets.json`. Both are local, gitignored development artifacts. Dataset IDs persist across restarts while these files remain available.
+
+Each upload receives a deterministic proposal mapping its original columns to canonical AlumniAI fields. Users can confirm, correct, ignore, or postpone mappings. Confirmed mappings take priority during later queries without renaming or modifying the source file. Older datasets are inferred lazily when schema review is opened.
+
+## Validation
+
+Use the checked-in Windows virtual environment when available:
+
+```bash
+./backend/venv/Scripts/python.exe -m pytest -q
+node --test frontend/tests/*.mjs
+python3 -m compileall -q backend/app backend/evals backend/tests
+cd backend && ./venv/Scripts/python.exe -m evals.run_evals --mode offline
 ```
 
-`OPENAI_API_KEY` in `backend/.env` is optional. Without it, the app still runs safe built-in analysis operations and returns deterministic fallback answers.
-
-## Dataset Persistence
-
-Uploaded CSV/XLSX files are stored locally in `backend/uploads/`. Dataset metadata is stored in `backend/data/datasets.json`.
-
-These are local development artifacts and are ignored by git. `dataset_id`s survive backend restarts as long as the uploaded files and `datasets.json` remain on disk.
-
-## Backend Tests
-
-```powershell
-cd backend
-pip install -r requirements.txt
-python -m pytest -v
-```
-
-Tests create temporary CSV/XLSX uploads and do not require a real OpenAI API key.
+An active Python environment may be substituted for `backend/venv/Scripts/python.exe`.

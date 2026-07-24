@@ -205,3 +205,15 @@
 
 /* svg icon default */
 .ico{ stroke:currentColor; stroke-width:1.9; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+
+/* ---------- schema mapping ---------- */
+.schema-row-grid{
+  display:grid; grid-template-columns:minmax(150px,1.05fr) minmax(230px,1.35fr) minmax(190px,1fr) auto;
+  gap:14px; align-items:start;
+}
+.schema-source-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.confidence-high{ color:#16775a; border-color:#55a98d; }
+.confidence-medium{ color:#9a6500; border-color:#c8922e; }
+.confidence-low{ color:var(--warn); border-color:var(--warn); }
+@media(max-width:980px){ .schema-row-grid{ grid-template-columns:minmax(140px,1fr) minmax(220px,1.5fr); } }
+@media(max-width:680px){ .schema-row-grid{ grid-template-columns:1fr; } }

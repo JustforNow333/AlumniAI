@@ -7,46 +7,9 @@ Resolution order: exact match, case-insensitive match, compact-normalized match
 
 import re
 
+from app.services.canonical_schema import CANONICAL_FIELD_ALIASES
 from app.services.email_utils import extract_email_tokens
-
-
-CANONICAL_FIELD_ALIASES = {
-    "first_name": ["First Name", "first name", "first_name", "FirstName", "given name"],
-    "last_name": ["Last Name", "LastName", "last name", "last_name", "surname", "family name"],
-    "full_name": ["Full Name", "full_name", "First and last name", "Name", "alumni name"],
-    "nickname": ["Nickname", "nickname", "preferred name"],
-    "occupation": ["Occupation", "occupation", "Job Title", "job title", "Title", "title", "Role", "role", "position"],
-    "employer": [
-        "Employer",
-        "employer",
-        "Company",
-        "company",
-        "Organization",
-        "organization",
-        "organisation",
-        "Firm",
-        "firm",
-        "workplace",
-    ],
-    "linkedin_url": [
-        "LinkedIn URL",
-        "LinkedinURL",
-        "LinkedInURL",
-        "LinkedIn",
-        "Linkedin",
-        "linkedin_url",
-        "linkedin",
-        "linked in",
-        "linked in url",
-    ],
-    "email": ["Email", "Email 1", "Email1", "Email 2", "Email2", "email address", "e-mail"],
-    "grad_year": ["Grad Yr", "Grad Year", "GradYear", "graduation year", "class year", "class yr"],
-    "major": ["Major", "major", "degree", "field of study", "program"],
-    "location": ["Location", "location"],
-    "city": ["City", "city", "town"],
-    "state": ["State", "state", "province", "region"],
-    "country": ["Country", "country"],
-}
+from app.services.schema_profile import canonical_to_source
 
 # Frontend-visible headers for alumni/person results, in display order.
 PERSON_DISPLAY_HEADERS = {
@@ -58,12 +21,29 @@ PERSON_DISPLAY_HEADERS = {
 }
 
 
-def resolve_canonical_column(df, canonical_field):
+def resolve_canonical_column(df, canonical_field, schema_profile=None):
     """Resolve a canonical field name to an actual DataFrame column, or None."""
+    mapped = resolve_canonical_columns(df, canonical_field, schema_profile=schema_profile)
+    if mapped:
+        return mapped[0]
     aliases = CANONICAL_FIELD_ALIASES.get(canonical_field)
     if not aliases:
         return None
     return resolve_by_aliases(df, aliases)
+
+
+def resolve_canonical_columns(df, canonical_field, schema_profile=None):
+    """Return every active dataset-mapped source for a canonical field.
+
+    Multi-value mappings are preserved. For single-value callers,
+    :func:`resolve_canonical_column` returns the first saved source.
+    """
+    profile = schema_profile
+    if profile is None:
+        attrs = getattr(df, "attrs", {})
+        profile = attrs.get("schema_profile") if isinstance(attrs, dict) else None
+    active = canonical_to_source(profile, getattr(df, "columns", []))
+    return list(active.get(canonical_field) or [])
 
 
 def resolve_by_aliases(df, aliases):
@@ -83,11 +63,13 @@ def resolve_by_aliases(df, aliases):
     return None
 
 
-def resolve_person_columns(df):
+def resolve_person_columns(df, schema_profile=None):
     """Map every resolvable canonical field to its actual column in df."""
     resolved = {}
     for canonical_field in CANONICAL_FIELD_ALIASES:
-        column = resolve_canonical_column(df, canonical_field)
+        column = resolve_canonical_column(
+            df, canonical_field, schema_profile=schema_profile
+        )
         if column:
             resolved[canonical_field] = column
     return resolved
@@ -108,6 +90,15 @@ def resolve_all_semantic_columns(semantic_key, dataset_context, *, question=""):
     explicit = _explicitly_named_column(question, actual_names, semantic_key)
     if explicit:
         return [explicit]
+
+    schema_mapping = _context_schema_mapping(dataset_context)
+    mapped = [
+        source
+        for source in schema_mapping.get(semantic_key, [])
+        if source in actual_names
+    ]
+    if mapped:
+        return list(dict.fromkeys(mapped))
 
     aliases = CANONICAL_FIELD_ALIASES.get(semantic_key, [semantic_key])
     alias_norms = {_normalize_compact(alias) for alias in aliases}
@@ -137,6 +128,25 @@ def _context_columns(dataset_context):
     if columns is None:
         return []
     return [{"name": str(column), "sample_values": []} for column in columns]
+
+
+def _context_schema_mapping(dataset_context):
+    if not isinstance(dataset_context, dict):
+        return {}
+    compact = dataset_context.get("schema_mapping")
+    if not isinstance(compact, dict):
+        return {}
+    mappings = compact.get("canonical_to_source")
+    if not isinstance(mappings, dict):
+        return {}
+    normalized = {}
+    for key, sources in mappings.items():
+        if key not in CANONICAL_FIELD_ALIASES or not isinstance(sources, list):
+            continue
+        cleaned = [str(source) for source in sources if str(source).strip()]
+        if cleaned:
+            normalized[key] = cleaned
+    return normalized
 
 
 def _explicitly_named_column(question, actual_names, semantic_key):

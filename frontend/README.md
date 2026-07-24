@@ -57,12 +57,24 @@ node --test frontend/tests/api-preview.test.mjs
   row_count, column_count, missing_count, columns, data_types, missing_values,
   rows }`, plus legacy `{ column_names, preview }` compatibility fields.
 - `GET /api/datasets/<dataset_id>/summary` → dataset summary metadata.
+- `GET /api/datasets/<dataset_id>/schema` → canonical definitions, source
+  metadata, inferred/saved mappings, conflicts, and review status.
+- `PUT /api/datasets/<dataset_id>/schema` → validates and saves the complete
+  reviewed mapping.
+- `POST /api/datasets/<dataset_id>/schema/infer` → re-runs bounded inference
+  while preserving confirmed mappings unless explicitly reset.
 - `POST /api/ask` `{ dataset_id, question }` → `{ answer, answer_text,
   operation, result }`. `answer` is structured as `{ title, summary, blocks,
   followups }`; supported block types are `markdown`, `table`, `metrics`, and
   `ranked_list`.
 - `api.jsx → adaptAnswer()` normalizes structured answers and safely wraps
   legacy plain-text answers in a markdown block.
+
+After a new API-mode upload, `app.jsx` opens schema review when the profile is
+not confirmed. Users can save, re-run detection, mark source columns ignored or
+unmapped, or skip and continue chatting. Dataset-library badges show
+`Schema ready`, `Needs schema review`, `Not analyzed`, or `File missing`, and
+the library provides a **Review schema** action for returning later.
 
 ## Going to production
 Drop the Babel CDN + in-browser transform by moving the `.jsx` into a Vite/CRA

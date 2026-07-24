@@ -67,6 +67,10 @@ function dsFromDatasetEntry(entry) {
     cols_n: entry.column_count != null ? entry.column_count : columns.length,
     totalMissing: 0,
     status: entry.status || "ready",
+    schema_status: entry.schema_status || "not_analyzed",
+    schema_mapped_count: entry.schema_mapped_count || 0,
+    schema_unmapped_count: entry.schema_unmapped_count || 0,
+    schema_conflict_count: entry.schema_conflict_count || 0,
   };
 }
 function formatUploadDate(iso) {
@@ -448,7 +452,14 @@ function Rail({ ds, view, onNavigate, onNewAnalysis }) {
 }
 
 /* ---------- dataset library ---------- */
-function DatasetLibrary({ datasets, activeDatasetId, error, onSelect, onRename, onDelete, onUpload }) {
+function schemaBadge(dataset) {
+  if (dataset.status === "missing") return { label: "File missing", tone: "var(--warn)" };
+  if (dataset.schema_status === "confirmed") return { label: "Schema ready", tone: "var(--success, #16845b)" };
+  if (dataset.schema_status === "not_analyzed") return { label: "Not analyzed", tone: "var(--text-3)" };
+  return { label: "Needs schema review", tone: "var(--warn)" };
+}
+
+function DatasetLibrary({ datasets, activeDatasetId, error, onSelect, onRename, onDelete, onUpload, onSchema }) {
   const inputRef = useRef(null);
   return (
     <div className="col" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 14, maxWidth: 860, width: "100%" }}>
@@ -477,6 +488,7 @@ function DatasetLibrary({ datasets, activeDatasetId, error, onSelect, onRename, 
       ) : (
         datasets.map(d => {
           const active = d.dataset_id === activeDatasetId;
+          const badge = schemaBadge(d);
           return (
             <div
               key={d.dataset_id}
@@ -496,21 +508,201 @@ function DatasetLibrary({ datasets, activeDatasetId, error, onSelect, onRename, 
                     {d.display_name || d.original_filename || "Untitled dataset"}
                   </span>
                   {active && <span className="chip chip-primary" style={{ flex: "none" }}>Active</span>}
-                  {d.status === "missing" && (
-                    <span className="chip" style={{ flex: "none", color: "var(--warn)", borderColor: "var(--warn)" }}>File missing</span>
-                  )}
+                  <span className="chip schema-status-badge" style={{ flex: "none", color: badge.tone, borderColor: badge.tone }}>{badge.label}</span>
                 </div>
                 <span style={{ fontSize: 12, color: "var(--text-3)" }}>
                   {d.row_count != null ? d.row_count.toLocaleString() : "—"} rows · {d.column_count != null ? d.column_count : "—"} columns
                   {d.uploaded_at ? ` · uploaded ${formatUploadDate(d.uploaded_at)}` : ""}
                 </span>
               </div>
+              {d.status !== "missing" && (
+                <button className="btn btn-ghost" style={{ flex: "none" }} onClick={e => { e.stopPropagation(); onSchema(d); }}>Review schema</button>
+              )}
               <button className="btn btn-ghost" style={{ flex: "none" }} onClick={e => { e.stopPropagation(); onRename(d); }}>Rename</button>
               <button className="btn btn-ghost" style={{ flex: "none", color: "var(--warn)" }} onClick={e => { e.stopPropagation(); onDelete(d); }}>Delete</button>
             </div>
           );
         })
       )}
+    </div>
+  );
+}
+
+/* ---------- dataset schema onboarding ---------- */
+function SchemaMappingReview({ dataset, schema, loading, error, onSave, onInfer, onSkip }) {
+  const [choices, setChoices] = useState({});
+  const [ignored, setIgnored] = useState([]);
+  const [formError, setFormError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const resetFromSchema = useCallback(next => {
+    const sourceChoices = {};
+    for (const [canonical, mapping] of Object.entries((next && next.mappings) || {})) {
+      for (const source of mapping.source_columns || []) sourceChoices[source] = canonical;
+    }
+    setChoices(sourceChoices);
+    setIgnored((next && next.ignored_columns) || []);
+    setFormError("");
+  }, []);
+
+  useEffect(() => { if (schema) resetFromSchema(schema); }, [schema && schema.updated_at, schema && schema.dataset_id]);
+
+  if (loading) {
+    return (
+      <div className="col" style={{ padding: "34px", gap: 12, alignItems: "center" }}>
+        <div className="brand-mark" style={{ width: 34, height: 34, animation: "pulse 1.1s ease-in-out infinite" }} />
+        <span style={{ fontWeight: 700 }}>Detecting dataset fields…</span>
+      </div>
+    );
+  }
+  if (!schema) {
+    return (
+      <div className="col" style={{ padding: "34px", gap: 12, alignItems: "flex-start" }}>
+        <span style={{ fontSize: 18, fontWeight: 800 }}>Review dataset fields</span>
+        <div role="alert" style={{ color: "var(--warn)", fontSize: 13 }}>{error || "Schema information is unavailable."}</div>
+        <button className="btn btn-ghost" onClick={onSkip}>Back to dataset</button>
+      </div>
+    );
+  }
+
+  const fields = schema.canonical_fields || [];
+  const fieldByKey = Object.fromEntries(fields.map(field => [field.key, field]));
+  const sourceMetadata = Object.fromEntries((schema.source_columns || []).map(column => [column.name, column]));
+  const conflictSources = new Set();
+  for (const conflict of schema.conflicts || []) {
+    if (conflict.source_column) conflictSources.add(conflict.source_column);
+    for (const source of conflict.source_columns || []) conflictSources.add(source);
+  }
+  const originalBySource = {};
+  for (const [canonical, mapping] of Object.entries(schema.mappings || {})) {
+    for (const source of mapping.source_columns || []) originalBySource[source] = { canonical, ...mapping };
+  }
+  const allSources = (schema.source_columns || []).map(item => item.name);
+  const rowGroup = source => {
+    if (ignored.includes(source) || !choices[source]) return 2;
+    const inferred = originalBySource[source];
+    if (conflictSources.has(source) || !inferred || inferred.confidence_label !== "high") return 1;
+    return 0;
+  };
+  const grouped = [
+    { title: "Confident mappings", rows: allSources.filter(source => rowGroup(source) === 0) },
+    { title: "Needs review", rows: allSources.filter(source => rowGroup(source) === 1) },
+    { title: "Unmapped or ignored", rows: allSources.filter(source => rowGroup(source) === 2) },
+  ].filter(group => group.rows.length);
+  const mappedCount = Object.values(choices).filter(Boolean).length;
+  const needsReviewCount = allSources.filter(source => rowGroup(source) !== 0).length;
+
+  const updateChoice = (source, canonical) => {
+    setChoices(current => ({ ...current, [source]: canonical }));
+    if (canonical) setIgnored(current => current.filter(item => item !== source));
+    setFormError("");
+  };
+  const toggleIgnored = source => {
+    const isIgnored = ignored.includes(source);
+    setIgnored(current => isIgnored ? current.filter(item => item !== source) : [...current, source]);
+    setChoices(current => ({ ...current, [source]: "" }));
+    setFormError("");
+  };
+  const acceptConfident = () => {
+    const next = {};
+    for (const [source, mapping] of Object.entries(originalBySource)) {
+      if (mapping.confidence_label === "high" && !conflictSources.has(source)) next[source] = mapping.canonical;
+    }
+    setChoices(next);
+    setIgnored([]);
+    setFormError("");
+  };
+  const validateAndBuild = () => {
+    const mappings = {};
+    for (const source of allSources) {
+      const canonical = choices[source];
+      if (!canonical || ignored.includes(source)) continue;
+      if (!fieldByKey[canonical]) throw new Error(`"${source}" has an invalid canonical-field selection.`);
+      if (!mappings[canonical]) mappings[canonical] = { source_columns: [] };
+      mappings[canonical].source_columns.push(source);
+    }
+    for (const [canonical, mapping] of Object.entries(mappings)) {
+      if (fieldByKey[canonical].cardinality === "single" && mapping.source_columns.length > 1) {
+        throw new Error(`${fieldByKey[canonical].label} accepts one source column. Choose a different field or leave one unmapped.`);
+      }
+    }
+    return { status: "confirmed", mappings, ignored_columns: ignored };
+  };
+  const save = async () => {
+    let payload;
+    try { payload = validateAndBuild(); } catch (e) { setFormError(e.message || String(e)); return; }
+    setBusy(true); setFormError("");
+    try { await onSave(payload); } catch (e) { setFormError(e.message || String(e)); }
+    finally { setBusy(false); }
+  };
+  const rerun = async () => {
+    setBusy(true); setFormError("");
+    try {
+      const next = await onInfer({ reset_confirmed: false, use_model: true });
+      resetFromSchema(next);
+    } catch (e) { setFormError(e.message || String(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="col schema-review" style={{ flex: "0 0 auto", padding: "26px 34px", gap: 18, maxWidth: 1040, width: "100%" }}>
+      <div className="row" style={{ justifyContent: "space-between", gap: 18, alignItems: "flex-start" }}>
+        <div className="col" style={{ gap: 5 }}>
+          <span style={{ fontSize: 18, fontWeight: 800 }}>Review dataset fields</span>
+          <span style={{ color: "var(--text-2)", fontSize: 13 }}>AlumniAI inferred what each column represents. Review uncertain mappings to improve future answers.</span>
+          <span className="kicker">{mappedCount} of {allSources.length} columns mapped · {needsReviewCount} need review · {dataset && dataset.name}</span>
+        </div>
+        <button className="btn btn-ghost" onClick={onSkip} disabled={busy}>Skip for now</button>
+      </div>
+      {(formError || error) && <div className="panel row gap8" role="alert" style={{ padding: "10px 12px", color: "var(--warn)", borderColor: "var(--warn)" }}><Icon name="bolt" size={14} />{formError || error}</div>}
+      {(schema.warnings || []).map((warning, index) => <div key={index} style={{ fontSize: 12, color: "var(--text-3)" }}>{warning}</div>)}
+      {grouped.map(group => (
+        <section key={group.title} className="col" style={{ gap: 8 }}>
+          <div className="row gap8">
+            <span style={{ fontSize: 13, fontWeight: 800 }}>{group.title}</span>
+            <span className="chip">{group.rows.length}</span>
+          </div>
+          {group.rows.map(source => {
+            const inferred = originalBySource[source];
+            const selected = choices[source] || "";
+            const metadata = sourceMetadata[source] || {};
+            const isIgnored = ignored.includes(source);
+            const field = fieldByKey[selected];
+            return (
+              <div key={source} className="panel schema-mapping-row" style={{ padding: "12px 14px" }}>
+                <div className="schema-row-grid">
+                  <div className="col" style={{ minWidth: 0, gap: 4 }}>
+                    <span className="mono schema-source-name" title={source} style={{ fontSize: 12.5, fontWeight: 700 }}>{source}</span>
+                    {!!(metadata.sample_values || []).length && <span title={(metadata.sample_values || []).join(" · ")} style={{ color: "var(--text-3)", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Samples: {(metadata.sample_values || []).join(" · ")}</span>}
+                  </div>
+                  <div className="col" style={{ gap: 4 }}>
+                    <label className="kicker" htmlFor={`schema-${source}`}>Canonical field</label>
+                    <select id={`schema-${source}`} value={isIgnored ? "" : selected} disabled={isIgnored || busy}
+                      onChange={event => updateChoice(source, event.target.value)}
+                      style={{ width: "100%", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 9px", background: "var(--surface)", color: "var(--text)" }}>
+                      <option value="">Unmapped</option>
+                      {fields.map(option => <option key={option.key} value={option.key}>{option.category} · {option.label}{option.cardinality === "multiple" ? " (multiple)" : ""}</option>)}
+                    </select>
+                    {field && <span style={{ fontSize: 11, color: "var(--text-3)" }}>{field.description}</span>}
+                  </div>
+                  <div className="col" style={{ gap: 5, alignItems: "flex-start" }}>
+                    {inferred ? <span className={`chip confidence-${inferred.confidence_label}`}>{Math.round(inferred.confidence * 100)}% · {inferred.confidence_label}</span> : <span className="chip">User selection</span>}
+                    <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>{inferred ? (inferred.evidence[0] || inferred.method) : "No automatic proposal."}</span>
+                    {conflictSources.has(source) && <span style={{ fontSize: 11.5, color: "var(--warn)", fontWeight: 700 }}>Conflicting suggestions need review.</span>}
+                  </div>
+                  <button className="btn btn-ghost" onClick={() => toggleIgnored(source)} disabled={busy} aria-pressed={isIgnored}>{isIgnored ? "Restore" : "Ignore"}</button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      ))}
+      <div className="row schema-actions" style={{ gap: 9, flexWrap: "wrap", paddingBottom: 20 }}>
+        <button className="btn btn-primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save and continue"}</button>
+        <button className="btn btn-ghost" onClick={acceptConfident} disabled={busy}>Accept confident mappings</button>
+        <button className="btn btn-ghost" onClick={rerun} disabled={busy}>Re-run detection</button>
+        <button className="btn btn-ghost" onClick={onSkip} disabled={busy}>Skip for now</button>
+      </div>
     </div>
   );
 }
@@ -943,7 +1135,7 @@ function UploadView({ onLoad, loadError, theme, onToggle }) {
 }
 
 /* ---------- workspace view ---------- */
-function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalysis, datasets, datasetsError, onSelectDataset, onRenameDataset, onDeleteDataset, onUpload, insights, insightsLoading, insightsError, selectedInsightId, onSelectInsight, onSaveInsight, onRenameInsight, onDeleteInsight, onUseInsightDataset, historyItems, historyLoading, historyError, selectedHistoryId, onSelectHistory, onDeleteHistory, onClearHistory, onSaveHistoryAsInsight }) {
+function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalysis, datasets, datasetsError, onSelectDataset, onRenameDataset, onDeleteDataset, onUpload, onOpenSchema, schema, schemaLoading, schemaError, onSaveSchema, onInferSchema, onSkipSchema, insights, insightsLoading, insightsError, selectedInsightId, onSelectInsight, onSaveInsight, onRenameInsight, onDeleteInsight, onUseInsightDataset, historyItems, historyLoading, historyError, selectedHistoryId, onSelectHistory, onDeleteHistory, onClearHistory, onSaveHistoryAsInsight }) {
   const [messages, setMessages] = useState(() => [{ role: "ai", kind: "help", op: null,
     text: `Loaded **${ds.name}** — ${ds.rows_n.toLocaleString()} rows across ${ds.cols_n} columns. Ask me anything, or try one of the suggestions below.` }]);
   const [busy, setBusy] = useState(false);
@@ -1028,6 +1220,17 @@ function Workspace({ ds, preview, theme, onToggle, view, onNavigate, onNewAnalys
               onRename={onRenameDataset}
               onDelete={onDeleteDataset}
               onUpload={onUpload}
+              onSchema={onOpenSchema}
+            />
+          ) : view === "schema" ? (
+            <SchemaMappingReview
+              dataset={ds}
+              schema={schema}
+              loading={schemaLoading}
+              error={schemaError}
+              onSave={onSaveSchema}
+              onInfer={onInferSchema}
+              onSkip={onSkipSchema}
             />
           ) : view === "insights" ? (
             <InsightsLibrary
@@ -1099,6 +1302,9 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [selectedHistoryId, setSelectedHistoryId] = useState(null);
+  const [schema, setSchema] = useState(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState("");
   const loadSeq = useRef(0);
   useEffect(() => { try { localStorage.setItem("alumniTheme", theme); } catch (e) {} }, [theme]);
   const toggle = () => setTheme(t => t === "light" ? "dark" : "light");
@@ -1134,6 +1340,60 @@ function App() {
       return;
     }
     loadPreviewFor(entry.dataset_id, seq);
+  };
+
+  const openSchema = async (entry, options = {}) => {
+    const target = entry && entry.dataset_id ? entry : ds;
+    if (!target || !target.dataset_id) return;
+    if (target.status === "missing") {
+      setDatasetsError("Schema review is unavailable because the uploaded file is missing.");
+      return;
+    }
+    if (options.select !== false && (!ds || ds.dataset_id !== target.dataset_id)) selectDataset(target);
+    setView("schema");
+    setSchema(null);
+    setSchemaError("");
+    setSchemaLoading(true);
+    try {
+      const next = await window.Alumni.datasetSchema(target.dataset_id);
+      setSchema(next);
+    } catch (e) {
+      setSchemaError(`Could not load schema: ${e.message || e}`);
+      return null;
+    } finally {
+      setSchemaLoading(false);
+    }
+  };
+
+  const schemaSummaryPatch = next => ({
+    schema_status: next.status,
+    schema_version: next.version || null,
+    schema_mapped_count: Object.keys(next.mappings || {}).length,
+    schema_unmapped_count: (next.unmapped_columns || []).length,
+    schema_conflict_count: (next.conflicts || []).length,
+  });
+
+  const saveSchema = async payload => {
+    if (!ds || !ds.dataset_id) throw new Error("No active dataset is selected.");
+    const next = await window.Alumni.saveDatasetSchema(ds.dataset_id, payload);
+    const patch = schemaSummaryPatch(next);
+    setSchema(next);
+    setSchemaError("");
+    setDatasets(list => list.map(item => item.dataset_id === ds.dataset_id ? { ...item, ...patch } : item));
+    setDs(current => current && current.dataset_id === ds.dataset_id ? { ...current, ...patch } : current);
+    setView("chat");
+    refreshDatasets();
+    return next;
+  };
+
+  const inferSchema = async options => {
+    if (!ds || !ds.dataset_id) throw new Error("No active dataset is selected.");
+    const next = await window.Alumni.inferDatasetSchema(ds.dataset_id, options || {});
+    const patch = schemaSummaryPatch(next);
+    setSchema(next);
+    setDatasets(list => list.map(item => item.dataset_id === ds.dataset_id ? { ...item, ...patch } : item));
+    setDs(current => current && current.dataset_id === ds.dataset_id ? { ...current, ...patch } : current);
+    return next;
   };
 
   // Initial load: fetch saved datasets, restore the previously active one
@@ -1298,6 +1558,9 @@ function App() {
 
     if (apiMode) {
       await loadPreviewFor(uploaded.dataset_id, seq);
+      if (uploaded.schema_status !== "confirmed") {
+        await openSchema(uploaded, { select: false });
+      }
     } else {
       setPreview({ columns: uploaded.columns || [], rows: (uploaded.rows || []).slice(0, 10), loading: false, error: "" });
     }
@@ -1373,6 +1636,13 @@ function App() {
         onRenameDataset={renameDataset}
         onDeleteDataset={deleteDataset}
         onUpload={load}
+        onOpenSchema={openSchema}
+        schema={schema}
+        schemaLoading={schemaLoading}
+        schemaError={schemaError}
+        onSaveSchema={saveSchema}
+        onInferSchema={inferSchema}
+        onSkipSchema={() => setView("chat")}
         insights={insights}
         insightsLoading={insightsLoading}
         insightsError={insightsError}

@@ -98,10 +98,40 @@ Cases live in `evals/cases.jsonl`, one JSON object per line. Common fields:
   rule used to prove the combined bucket sets.
 - `require_composite_filter`: require clause-preserving planning through the
   approved composite people-filter operation.
+- `expected_predicate_operators`, `expected_predicate_count`, and
+  `expected_predicate_logic`: typed-predicate plan checks.
+- `expected_group_depth` and `expected_range_inclusivity`: recursive grouping
+  and range-boundary checks.
+- `fuzzy_clause_must_be_preserved`: require fuzzy/exact composition without a
+  dropped classifier clause.
+- `schema_mapping`: optional canonical-to-source setup applied through
+  `PUT /api/datasets/<dataset_id>/schema` after upload and before the question.
 
 Add new cases by appending a JSON object to `cases.jsonl`. Prefer computing
 expected rows from `expected_industry` or `expected_filter` rather than copying
 counts by hand.
+
+Focused opaque-header schema cases live in `schema_cases.jsonl` and use
+`datasets/opaque_schema_alumni.csv`:
+
+```bash
+python -m evals.run_evals --mode offline \
+  --dataset evals/datasets/opaque_schema_alumni.csv \
+  --app-view evals/generated/opaque_schema_alumni_app_view.csv \
+  --cases evals/schema_cases.jsonl \
+  --category schema_mapping
+```
+
+Focused numeric, date, membership, boundary-string, grouped, and fuzzy/exact
+predicate cases live in `expanded_predicate_cases.jsonl`:
+
+```bash
+python -m evals.run_evals --mode offline \
+  --dataset evals/datasets/expanded_predicates.csv \
+  --app-view evals/generated/expanded_predicates_app_view.csv \
+  --cases evals/expanded_predicate_cases.jsonl \
+  --category expanded_predicates
+```
 
 ## Scoring
 

@@ -27,6 +27,7 @@ def create_app():
     app.config["DATA_FOLDER"] = data_folder
     app.config["DATASET_REGISTRY_PATH"] = os.path.join(data_folder, "datasets.json")
     app.config["HISTORY_REGISTRY_PATH"] = os.path.join(data_folder, "history.json")
+    app.config["PREDICATE_CURRENT_DATE"] = os.getenv("PREDICATE_CURRENT_DATE")
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
     app.config["JSON_SORT_KEYS"] = False
 

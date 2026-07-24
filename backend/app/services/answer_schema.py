@@ -230,11 +230,15 @@ def deterministic_answer_from_results(question, plan, operation_results, dataset
         rows = ranked_result.get("rows") or []
         items = []
         for row in rows[:MAX_RANKED_ITEMS]:
-            label = row[0] if row else ""
-            value = row[1] if len(row) > 1 else ""
+            if isinstance(row, dict):
+                values = [row.get(column, "") for column in columns]
+            else:
+                values = list(row) if isinstance(row, (list, tuple)) else [row]
+            label = values[0] if values else ""
+            value = values[1] if len(values) > 1 else ""
             description = ", ".join(
-                f"{columns[i]}: {format_value(row[i])}"
-                for i in range(2, min(len(columns), len(row)))
+                f"{columns[i]}: {format_value(values[i])}"
+                for i in range(2, min(len(columns), len(values)))
             )
             items.append(
                 {

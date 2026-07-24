@@ -66,11 +66,20 @@ junit.xml
 *.py,cover
 *.prof
 
-# Generated evaluation artifacts
+# Generated evaluation artifacts (app-view datasets, reports, and traces)
 backend/evals/generated/*
 backend/evals/results/*
 !backend/evals/generated/.gitkeep
 !backend/evals/results/.gitkeep
+
+# Ad-hoc local eval/debug outputs written beside the tracked eval sources
+backend/evals/*.local.json
+backend/evals/*.local.md
+backend/evals/*.debug.json
+backend/evals/*.proof.json
+backend/evals/*.trace.json
+backend/evals/*.trace.jsonl
+backend/evals/traces/
 
 # =========================
 # Frontend / Node
@@ -101,6 +110,9 @@ Desktop.ini
 .agents/
 .claude/
 .codex/
+
+# After every user prompt, review and update this file, agents.md, and CLAUDE.md
+# with any new durable rules or generated artifacts. Keep the files concise.
 
 # =========================
 # Logs

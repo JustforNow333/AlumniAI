@@ -53,3 +53,27 @@ test("history delete and save-as-insight actions are wired", () => {
   assert.match(source, /window\.Alumni\.saveHistoryAsInsight\(item\)/);
   assert.match(source, /Save as insight/);
 });
+
+test("schema onboarding opens after upload, can be skipped, and confirmed schemas are not forced", () => {
+  assert.match(source, /uploaded\.schema_status !== "confirmed"/);
+  assert.match(source, /await openSchema\(uploaded, \{ select: false \}\)/);
+  assert.match(source, /onSkipSchema=\{\(\) => setView\("chat"\)\}/);
+  assert.match(source, />Skip for now</);
+});
+
+test("schema review supports editing, saving, reinference, ignored fields, and duplicate validation", () => {
+  assert.match(source, /function SchemaMappingReview/);
+  assert.match(source, /Save and continue/);
+  assert.match(source, /Accept confident mappings/);
+  assert.match(source, /Re-run detection/);
+  assert.match(source, /ignored_columns: ignored/);
+  assert.match(source, /cardinality === "single" && mapping\.source_columns\.length > 1/);
+  assert.match(source, /setFormError\(e\.message \|\| String\(e\)\)/);
+});
+
+test("dataset library renders schema badges and a review action", () => {
+  assert.match(source, /Schema ready/);
+  assert.match(source, /Needs schema review/);
+  assert.match(source, /Not analyzed/);
+  assert.match(source, />Review schema</);
+});

@@ -182,6 +182,7 @@ def _run_cases_with_test_client(
 
         results = []
         for case in cases:
+            app.config["PREDICATE_CURRENT_DATE"] = case.get("current_date")
             trace = ModelCallTrace()
             ai_enabled = _case_ai_enabled(case, mode, live_client)
             ai_service.client = TracedAIClient(live_client, trace) if ai_enabled else None
@@ -190,6 +191,8 @@ def _run_cases_with_test_client(
                 scored = _run_direct_classifier_case(case, trace)
                 response_json = {"_status_code": 200}
             else:
+                if isinstance(case.get("schema_mapping"), dict):
+                    _apply_schema_mapping(client, dataset_id, case["schema_mapping"])
                 response_json = _ask(client, dataset_id, case["question"])
                 normalized = extract_normalized_response(response_json)
                 scoring_case = dict(case)
@@ -351,6 +354,31 @@ def _ask(client, dataset_id: str, question: str) -> dict[str, Any]:
     if response.status_code >= 400:
         data.setdefault("answer_text", data.get("error") or response.get_data(as_text=True))
     return data
+
+
+def _apply_schema_mapping(client, dataset_id: str, mapping: dict[str, Any]) -> None:
+    """Apply optional per-case canonical mappings through the production API."""
+    payload = {
+        "status": "confirmed",
+        "mappings": {
+            str(canonical): {
+                "source_columns": (
+                    list(sources)
+                    if isinstance(sources, list)
+                    else [str(sources)]
+                )
+            }
+            for canonical, sources in mapping.items()
+        },
+        "ignored_columns": [],
+    }
+    response = client.put(f"/api/datasets/{dataset_id}/schema", json=payload)
+    if response.status_code != 200:
+        data = response.get_json(silent=True) or {}
+        raise RuntimeError(
+            f"Schema setup failed with {response.status_code}: "
+            f"{data.get('error') or response.get_data(as_text=True)}"
+        )
 
 
 if __name__ == "__main__":

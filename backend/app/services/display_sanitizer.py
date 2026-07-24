@@ -334,7 +334,16 @@ def _question_requests_optional_group(question: Any, group: str) -> bool:
     if group == "grad_year":
         return bool(re.search(r"\b(?:graduation|graduated|grad year|class year|class of)\b", text))
     if group == "location":
-        return bool(re.search(r"\b(?:location|locations|city|cities|state|country|where|based in|located in)\b", text))
+        return bool(
+            re.search(
+                r"\b(?:location|locations|city|cities|state|country|where|based in|located in|outside)\b",
+                text,
+            )
+            or re.search(
+                r"\b(?:alumni|people|records|consultants?|engineers?|donors?)\b.{0,30}\b(?:in|from|not in)\b",
+                text,
+            )
+        )
     if group == "preferred_name":
         return bool(re.search(r"\b(?:preferred name|nickname|nick name)\b", text))
     if group == "industry":

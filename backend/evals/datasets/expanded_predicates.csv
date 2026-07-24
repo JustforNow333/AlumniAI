@@ -1,0 +1,7 @@
+first_name,last_name,graduation_year,lifetime_giving,event_count,last_contact_date,updated_at,city,employer,title,relationship_manager,email,expected_industry
+Ava,Lee,2018,"$5,000",3,2024-12-15,2026-07-01,New York,Google,Software Engineer,,ava@example.com,Tech
+Noah,Kim,2020,"$5,001",2,2025-01-01,2026-01-01,Boston,Deloitte,Consultant,Jordan Smith,noah@cornell.edu,Consulting
+Mia,Patel,2023,"10,000",5,,2026-05-01,Philadelphia,BlackRock,Portfolio Manager,,mia@gmail.com,Finance
+Liam,Jones,2024,N/A,0,2026-06-01,bad date,Chicago,Morgan Stanley,Data Engineer,Taylor Reed,liam@example.com,Tech
+Zoe,Reed,2017,750,4,2023-05-01,2026-04-24,New York,Community Org,Teacher,Alex Rivera,zoe@example.com,Education
+Ethan,Park,2022,"$8,000",6,2024-06-30,2026-04-25,Austin,OpenAI,Finance Manager,,ethan@example.com,Tech

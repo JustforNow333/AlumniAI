@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from app.services.email_utils import extract_email_tokens
-from app.services.intent_filter import evaluate_predicate_row
+from app.services.intent_filter import evaluate_predicate_row, predicate_group_leaves
 
 
 EVAL_ONLY_PREFIXES = ("expected_", "eval_")
@@ -69,8 +69,8 @@ def is_eval_only_column(column: Any) -> bool:
 
 def get_full_name(row: Any) -> str:
     data = _row_mapping(row)
-    first = _value_for_alias(data, {"first name", "first_name", "firstname", "given name"})
-    last = _value_for_alias(data, {"last name", "last_name", "lastname", "surname", "family name"})
+    first = _value_for_alias(data, {"first name", "first_name", "firstname", "given name", "eval_first_name"})
+    last = _value_for_alias(data, {"last name", "last_name", "lastname", "surname", "family name", "eval_last_name"})
     if first and last:
         return f"{first} {last}".strip()
     full = _value_for_alias(data, {"full name", "name", "person name", "person_name", "alumni name"})
@@ -259,6 +259,23 @@ def score_case(
                 "result_verification",
                 "Typed-predicate post-verification removed one or more rows.",
             )
+    if any(
+        key in case
+        for key in (
+            "expected_predicate_operators",
+            "expected_predicate_count",
+            "expected_predicate_logic",
+            "expected_group_depth",
+            "expected_range_inclusivity",
+            "fuzzy_clause_must_be_preserved",
+        )
+    ):
+        _score_expanded_predicate_contract(
+            case,
+            raw_response,
+            failures,
+            failure_categories,
+        )
 
     if case.get("require_composite_filter"):
         _score_composite_contract(
@@ -998,16 +1015,46 @@ def _filter_mask(df: pd.DataFrame, spec: Any) -> pd.Series:
         return ~_filter_mask(df, spec["not"])
 
     op = str(spec.get("op") or "equals").casefold()
-    if op in {"email_domain_in", "email_domain_not_in"}:
+    typed_ops = {
+        "exists",
+        "missing",
+        "equals",
+        "not_equals",
+        "contains",
+        "not_contains",
+        "greater_than",
+        "greater_than_or_equal",
+        "less_than",
+        "less_than_or_equal",
+        "between",
+        "in",
+        "not_in",
+        "date_before",
+        "date_after",
+        "date_between",
+        "starts_with",
+        "ends_with",
+        "email_domain_in",
+        "email_domain_not_in",
+    }
+    if op in typed_ops:
         requested_columns = spec.get("columns") or [spec.get("column") or "email"]
         columns = [_resolve_gold_column(df, column) for column in requested_columns]
+        raw_values = spec.get("values")
+        if raw_values is None:
+            raw_value = spec.get("value")
+            raw_values = raw_value if isinstance(raw_value, list) else ([] if raw_value is None else [raw_value])
         predicate = {
             "columns": columns,
             "operator": op,
-            "values": list(spec.get("values") or [spec.get("value") or "cornell.edu"]),
+            "values": list(raw_values or []),
             "include_subdomains": bool(spec.get("include_subdomains", True)),
             "quantifier": str(spec.get("quantifier") or "any").casefold(),
-            "require_valid_value": bool(spec.get("require_valid_value", True)),
+            "require_valid_value": bool(
+                spec.get("require_valid_value", op not in {"exists", "missing"})
+            ),
+            "lower_inclusive": bool(spec.get("lower_inclusive", True)),
+            "upper_inclusive": bool(spec.get("upper_inclusive", True)),
         }
         return df.apply(lambda row: evaluate_predicate_row(row, predicate), axis=1).fillna(False)
 
@@ -1193,6 +1240,89 @@ def _match_gold_rows_for_returned_row(row: dict[str, Any], gold_df: pd.DataFrame
             matches = email_matches
 
     return matches
+
+
+def _score_expanded_predicate_contract(
+    case: dict[str, Any],
+    raw: dict[str, Any],
+    failures: list[str],
+    categories: set[str],
+) -> None:
+    trace = raw.get("intent_filter_trace") if isinstance(raw.get("intent_filter_trace"), dict) else {}
+    intent = raw.get("analysis_intent") if isinstance(raw.get("analysis_intent"), dict) else {}
+    root = intent.get("row_predicates") if isinstance(intent.get("row_predicates"), dict) else {}
+    leaves = predicate_group_leaves(root)
+
+    expected_operators = case.get("expected_predicate_operators")
+    if isinstance(expected_operators, list):
+        observed = [predicate.get("operator") for predicate in leaves]
+        if observed != expected_operators:
+            _add_failure(
+                failures,
+                categories,
+                "intent_filter_validation",
+                f"Expected predicate operators {expected_operators}, got {observed}.",
+            )
+    if case.get("expected_predicate_count") is not None:
+        expected_count = int(case["expected_predicate_count"])
+        if len(leaves) != expected_count:
+            _add_failure(
+                failures,
+                categories,
+                "intent_filter_validation",
+                f"Expected {expected_count} normalized predicates, got {len(leaves)}.",
+            )
+    if case.get("expected_predicate_logic") is not None:
+        expected_logic = str(case["expected_predicate_logic"]).casefold()
+        if str(root.get("logic") or "").casefold() != expected_logic:
+            _add_failure(
+                failures,
+                categories,
+                "intent_filter_validation",
+                f"Expected predicate logic {expected_logic}, got {root.get('logic') or 'none'}.",
+            )
+    if case.get("expected_group_depth") is not None:
+        expected_depth = int(case["expected_group_depth"])
+        observed_depth = int(trace.get("predicate_group_depth") or 0)
+        if observed_depth != expected_depth:
+            _add_failure(
+                failures,
+                categories,
+                "intent_filter_validation",
+                f"Expected predicate group depth {expected_depth}, got {observed_depth}.",
+            )
+    inclusivity = case.get("expected_range_inclusivity")
+    if isinstance(inclusivity, list) and len(inclusivity) == 2:
+        range_predicate = next(
+            (
+                predicate
+                for predicate in leaves
+                if predicate.get("operator") in {"between", "date_between"}
+            ),
+            None,
+        )
+        observed = (
+            [
+                bool(range_predicate.get("lower_inclusive", True)),
+                bool(range_predicate.get("upper_inclusive", True)),
+            ]
+            if range_predicate
+            else None
+        )
+        if observed != [bool(inclusivity[0]), bool(inclusivity[1])]:
+            _add_failure(
+                failures,
+                categories,
+                "intent_filter_validation",
+                f"Expected range inclusivity {inclusivity}, got {observed}.",
+            )
+    if case.get("fuzzy_clause_must_be_preserved") and trace.get("fuzzy_clause_dropped") is not False:
+        _add_failure(
+            failures,
+            categories,
+            "filter_composition",
+            "The fuzzy clause was not preserved alongside expanded exact predicates.",
+        )
 
 
 def _score_composite_contract(
